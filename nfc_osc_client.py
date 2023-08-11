@@ -8,6 +8,10 @@ import nfc.clf.transport
 
 import errno
 
+def print_tag(tag):
+    print("found tag %s" % tag)
+
+
 class NfcController:
     def __init__(self) -> None:
         self.clfs = []
@@ -25,15 +29,14 @@ class NfcController:
                     print("access denied")
                 elif error.errno == errno.EBUSY:
                     print("busy")
-
+    
     def poll_readers(self): 
         """Poll each reader for a card, print the tag"""
         for nfc_reader in self.clfs:
-            tag = nfc_reader.connect(rdwr={})
-            print("device %s " % nfc_reader.device)
-            print("found tag %s" % tag)
+            nfc_reader.connect(rdwr={'on-connect': print_tag})
 
 if __name__ == "__main__":
     controller = NfcController()
-    while True: 
-        controller.discover_readers()
+    controller.discover_readers()
+    while True:
+        controller.poll_readers()
