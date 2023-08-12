@@ -19,6 +19,43 @@ class Sighandler:
         self.sigint = True
         print(f'\n***{signal.Signals(sig).name} received. Exiting...***')
 
+
+class TagCommand: 
+    def __init__(self, record):
+        try: 
+            self.tag_data = record.text.split(";")
+            self.valid_header = self.tag_data[0] == "eldermother"
+            self.pattern = self.tag_data[1].split(":")[1]
+            self.one_shot = self.tag_data[2].split(":")[1] in ['yes', 'y', 'true']
+        except Exception as e: 
+            print(f'{e}')
+
+
+class CustomTextTag:
+    def __init__(self, tag): 
+        self.tag = tag
+        self.cmd = None
+        if tag.ndef is not None:
+            record = tag.ndef.records[0]
+            if isinstance(record, ndef.TextRecord):
+                self.cmd = TagCommand(record)
+        
+    def is_header_valid(self): 
+        if self.cmd is None:
+            return False 
+        else:
+            return self.cmd.valid_header
+
+    def get_pattern(self):
+        if self.cmd is None: 
+            return ""
+        return self.cmd.pattern
+
+    def is_one_shot(self): 
+        if self.cmd is None:
+            return False
+        return self.cmd.one_shot
+
 class NfcReader:
     """
     NFC reader 
@@ -27,25 +64,21 @@ class NfcReader:
         self.clf = clf
         self.last_tag = None
         self.current_tag = None
-        self.one_shot_affirmatives = ['yes', 'y', 'true']
 
     def update(self, tag):
         self.last_tag = self.current_tag
         self.current_tag = tag
 
-        if tag.ndef is not None:
-            for record in tag.ndef.records:
-                if isinstance(record, ndef.TextRecord):
-                    packet = record.text.split(";")
-                    pattern = packet[0].split(":")[1]
-                    one_shot = packet[1].split(":")[1] in self.one_shot_affirmatives
-                    one_shot_transition = True
-                    if self.last_tag is not None:
-                        one_shot_transition = self.current_tag.identifier != self.last_tag.identifier
+        text_tag = CustomTextTag(tag)
+        if text_tag.is_header_valid():
+            one_shot_transition = True
+            if self.last_tag is not None:
+                one_shot_transition = self.current_tag.identifier != self.last_tag.identifier
 
-                    if not one_shot or (one_shot and one_shot_transition):
-                        print(f'transmitting pattern={pattern}')
-
+            if not text_tag.is_one_shot() or (text_tag.is_one_shot() and one_shot_transition):
+                print(f'transmitting pattern={text_tag.get_pattern()}, one-shot={text_tag.is_one_shot()}')
+        else:
+            print("Missing NFC NDEF header text. Format and try again")
 
 class NfcController:
     """
@@ -59,7 +92,7 @@ class NfcController:
             'on-startup' : self.start_poll,
             'on-connect' : self.tag_detected,
             'iterations' : 1,
-            'interval' : 0.05
+            'interval' : 0.5
         }
 
         self.start_time_ms = time.time_ns() / 1000
@@ -76,14 +109,15 @@ class NfcController:
 
     def start_poll(self, targets):
         """Start the stop watch. Must return targets to clf"""
-        self.start_time_ms = time.time_ns() / 1000
+        self.start_time_ms = time.time_ns() / 1000000
         return targets
 
     def timeout(self):
         """
         Return whether time > TIMEOUT_S has elapsed since last call of start_poll()
         """
-        return (time.time_ns() / 1000) - self.start_time_ms > self.TIMEOUT_ms
+        elapsed = (time.time_ns() / 1000000) - self.start_time_ms
+        return elapsed > self.TIMEOUT_ms
 
     def close_all(self): 
         """
