@@ -9,6 +9,7 @@ import nfc.clf.transport
 import errno
 import signal
 import time
+import ndef
 
 class Sighandler:
     def __init__(self) -> None:
@@ -18,30 +19,62 @@ class Sighandler:
         self.sigint = True
         print(f'\n***{signal.Signals(sig).name} received. Exiting...***')
 
+class NfcReader:
+    """
+    NFC reader 
+    """
+    def __init__(self, clf):
+        self.clf = clf
+        self.last_tag = None
+        self.current_tag = None
+        self.affirmatives = ['yes', 'y', 'true']
+
+    def update(self, tag):
+        self.last_tag = self.current_tag
+        self.current_tag = tag
+
+        if tag.ndef is not None:
+            for record in tag.ndef.records:
+                if isinstance(record, ndef.TextRecord):
+                    packet = record.text.split(";")
+                    pattern = packet[0].split(":")[1]
+                    one_shot = packet[1].split(":")[1] in self.affirmatives
+                    print(f'Parsed NFC Tag: pattern={pattern}, one-shot={one_shot}')
+                    one_shot_transition = self.current_tag.identifier != self.last_tag.identifier
+                    if one_shot == False or (one_shot == True and one_shot_transition == True):
+                        # ocs_transmit()
+                        print("transmitting")
+                    
+
 
 class NfcController:
     """
-    NFC Controller class. Supports polling multiple readers
+    NFC Controller -- supports polling multiple readers
     """
     def __init__(self) -> None:
-        self.clfs = []
+        self.readers = []
+        self.active_reader = None
         
         self.rw_params = {
             'on-startup' : self.start_poll,
-            'on-connect' : self.print_tag,
+            'on-connect' : self.tag_detected,
             'iterations' : 2,
             'interval' : 0.1
         }
 
         self.start_time = time.time()
-        self.TIMEOUT_S = 0.2
+        self.TIMEOUT_S = 0.5
 
-    def print_tag(self, tag):
+    def tag_detected(self, tag):
         """Print detected tag's NDEF data"""
-        try: 
-            print(f'Detected tag with data: {tag.ndef.records}')
-        except:
+        if tag.ndef is not None:
+            print(f'Detected tag with NDEF record(s):')
+            for record in tag.ndef.records:
+                print(f'{record}')
+            self.active_reader.update(tag)
+        else:
             print("Detected tag without NDEF record. Add a record and try again")
+
         return True
 
     def start_poll(self, targets):
@@ -60,8 +93,8 @@ class NfcController:
         Close all detected NFC readers. If reader is not closed correctly, it 
         will not initialize correctly on the next run due issue on PN532
         """
-        for nfc_reader in self.clfs:
-            nfc_reader.close()
+        for nfc_reader in self.readers:
+            nfc_reader.clf.close()
         print("***Closed all readers***")
 
     def discover_readers(self):
@@ -71,8 +104,8 @@ class NfcController:
             path = "tty:{0}".format(dev[8:])
             try:
                 clf = nfc.ContactlessFrontend(path)
-                self.clfs.append(clf) 
                 print(f'Found device: {clf.device}')
+                self.readers.append(NfcReader(clf)) 
             except IOError as error:
                 if error.errno == errno.ENODEV:
                     print(f'Reader found on {path} but not responding. Power cycle the reader and try again')
@@ -81,21 +114,23 @@ class NfcController:
     
     def poll_readers(self): 
         """Poll each reader for a card, print the tag"""
-        i = 0
         print("***Polling***")
-        for nfc_reader in self.clfs:
+        for nfc_reader in self.readers:
+            self.active_reader = nfc_reader
             try: 
-                nfc_reader.connect(rdwr=self.rw_params, terminate=self.timeout)
-                print(f'Polled reader {nfc_reader.device}')
-                i = i + 1
+                print(f'Polling reader {nfc_reader.clf.device}')
+                tag = nfc_reader.clf.connect(rdwr=self.rw_params, terminate=self.timeout)
+                if tag is None:
+                    nfc_reader.update(None)
             except: 
                 pass
 
 if __name__ == "__main__":
+    print("***CTRL+C or pskill python to exit***")
     controller = NfcController()
     controller.discover_readers()
 
-    if len(controller.clfs) == 0:
+    if len(controller.readers) == 0:
         print("***No devices found. Exiting***")
         exit() 
 
