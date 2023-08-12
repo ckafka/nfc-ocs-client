@@ -39,11 +39,13 @@ class NfcReader:
                     packet = record.text.split(";")
                     pattern = packet[0].split(":")[1]
                     one_shot = packet[1].split(":")[1] in self.affirmatives
-                    print(f'Parsed NFC Tag: pattern={pattern}, one-shot={one_shot}')
-                    one_shot_transition = self.current_tag.identifier != self.last_tag.identifier
-                    if one_shot == False or (one_shot == True and one_shot_transition == True):
-                        # ocs_transmit()
-                        print("transmitting")
+                    one_shot_transition = True
+                    if self.last_tag is not None:
+                        one_shot_transition = self.current_tag.identifier != self.last_tag.identifier
+
+                    if not one_shot or (one_shot and one_shot_transition):
+                        print(f'transmitting pattern={pattern}')
+                    
                     
 
 
@@ -63,14 +65,11 @@ class NfcController:
         }
 
         self.start_time = time.time()
-        self.TIMEOUT_S = 0.5
+        self.TIMEOUT_S = 0.2
 
     def tag_detected(self, tag):
         """Print detected tag's NDEF data"""
         if tag.ndef is not None:
-            print(f'Detected tag with NDEF record(s):')
-            for record in tag.ndef.records:
-                print(f'{record}')
             self.active_reader.update(tag)
         else:
             print("Detected tag without NDEF record. Add a record and try again")
