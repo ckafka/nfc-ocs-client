@@ -36,9 +36,12 @@ class CustomTextTag:
         self.tag = tag
         self.cmd = None
         if tag.ndef is not None:
-            record = tag.ndef.records[0]
-            if isinstance(record, ndef.TextRecord):
-                self.cmd = TagCommand(record)
+            try:
+                record = tag.ndef.records[0]
+                if isinstance(record, ndef.TextRecord):
+                    self.cmd = TagCommand(record)
+            except Exception as e:
+                print(f'{e}')
         
     def is_header_valid(self): 
         if self.cmd is None:
