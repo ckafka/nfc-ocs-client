@@ -27,7 +27,7 @@ class NfcReader:
         self.clf = clf
         self.last_tag = None
         self.current_tag = None
-        self.affirmatives = ['yes', 'y', 'true']
+        self.one_shot_affirmatives = ['yes', 'y', 'true']
 
     def update(self, tag):
         self.last_tag = self.current_tag
@@ -38,15 +38,13 @@ class NfcReader:
                 if isinstance(record, ndef.TextRecord):
                     packet = record.text.split(";")
                     pattern = packet[0].split(":")[1]
-                    one_shot = packet[1].split(":")[1] in self.affirmatives
+                    one_shot = packet[1].split(":")[1] in self.one_shot_affirmatives
                     one_shot_transition = True
                     if self.last_tag is not None:
                         one_shot_transition = self.current_tag.identifier != self.last_tag.identifier
 
                     if not one_shot or (one_shot and one_shot_transition):
                         print(f'transmitting pattern={pattern}')
-                    
-                    
 
 
 class NfcController:
@@ -60,12 +58,12 @@ class NfcController:
         self.rw_params = {
             'on-startup' : self.start_poll,
             'on-connect' : self.tag_detected,
-            'iterations' : 2,
-            'interval' : 0.1
+            'iterations' : 1,
+            'interval' : 0.05
         }
 
-        self.start_time = time.time()
-        self.TIMEOUT_S = 0.2
+        self.start_time_ms = time.time_ns() / 1000
+        self.TIMEOUT_ms = 100
 
     def tag_detected(self, tag):
         """Print detected tag's NDEF data"""
@@ -78,14 +76,14 @@ class NfcController:
 
     def start_poll(self, targets):
         """Start the stop watch. Must return targets to clf"""
-        self.start_time = time.time()
+        self.start_time_ms = time.time_ns() / 1000
         return targets
 
     def timeout(self):
         """
         Return whether time > TIMEOUT_S has elapsed since last call of start_poll()
         """
-        return time.time() - self.start_time > self.TIMEOUT_S
+        return (time.time_ns() / 1000) - self.start_time_ms > self.TIMEOUT_ms
 
     def close_all(self): 
         """
