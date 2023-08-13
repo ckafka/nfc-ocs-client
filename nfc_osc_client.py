@@ -1,127 +1,122 @@
 """
 nfc ocs server
 """
+import errno
+import signal
+import time
+import sys
 
 import nfc
 import nfc.clf.device
 import nfc.clf.transport
-
-import errno
-import signal
-import time
-import ndef
-
 from pythonosc.udp_client import SimpleUDPClient
 
-ip = "127.0.0.1"
-port = 7777
+from nfc_tags import CustomTextTag
+
 
 class Sighandler:
+    """SIGTERM and SIGINT handler"""
+
     def __init__(self) -> None:
         self.sigint = False
-    
+
     def signal_handler(self, sig, han):
+        """Ack received handler"""
         self.sigint = True
-        print(f'\n***{signal.Signals(sig).name} received. Exiting...***')
+        print(f"\n***{signal.Signals(sig).name} received. Exiting...***")
 
-
-class TagCommand: 
-    def __init__(self, record):
-        try: 
-            self.tag_data = record.text.split(";")
-            self.valid_header = self.tag_data[0] == "eldermother"
-            self.pattern = self.tag_data[1].split(":")[1]
-            self.one_shot = self.tag_data[2].split(":")[1] in ['yes', 'y', 'true']
-        except Exception as e: 
-            print(f'{e}')
-
-
-class CustomTextTag:
-    def __init__(self, tag): 
-        self.tag = tag
-        self.cmd = None
-        if tag.ndef is not None:
-            try:
-                record = tag.ndef.records[0]
-                if isinstance(record, ndef.TextRecord):
-                    self.cmd = TagCommand(record)
-            except Exception as e:
-                print(f'{e}')
-        
-    def is_header_valid(self): 
-        if self.cmd is None:
-            return False 
-        else:
-            return self.cmd.valid_header
-
-    def get_pattern(self):
-        if self.cmd is None: 
-            return ""
-        return self.cmd.pattern
-
-    def is_one_shot(self): 
-        if self.cmd is None:
-            return False
-        return self.cmd.one_shot
 
 class NfcReader:
     """
-    NFC reader 
+    NFC reader
     """
+
     def __init__(self, clf):
         self.clf = clf
         self.last_tag = None
         self.current_tag = None
 
-        self.active_custom_tag = None
-        self.active = False
-        self.one_shot_enabled = False
+        self.active_tag: CustomTextTag = None
+        self.activated = False
 
-    def update(self, tag): 
+    def update(self, tag):
+        """Set new tag information"""
         self.last_tag = self.current_tag
         self.current_tag = tag
 
-    def is_new_tag_available(self, tag):
-        if tag is not None: 
+    def is_current_tag_new_and_valid(self):
+        """Return true if the current tag is new and valid"""
+
+        if self.activated:
+            print("A tag is already active")
+            return False
+
+        valid = False
+        if self.current_tag is not None:
             print("Checking if tag is valid....")
-            new_text_tag = CustomTextTag(tag)
-            if new_text_tag.is_header_valid():
-                print("Valid header")
-                if self.active: 
-                    print(f'Detected already active tag')
-                    return False
-
-                self.active_custom_tag = new_text_tag
-                return True
-            else:
+            if self.current_tag.ndef is not None:
+                print("Detected tag with NDEF record. Checking header...")
+                new_text_tag = CustomTextTag(self.current_tag)
+                if new_text_tag.is_header_valid():
+                    print("Valid header")
+                    self.active_tag = new_text_tag
+                    valid = True
                 print("Missing NFC NDEF header text. Format and try again")
+            else:
+                print("Detected tag without NDEF record.")
+                # check the list of hard coded serial numbers
+                valid = False
+            return valid
 
-        return False 
+    def pattern_activated(self):
+        """Set pattern as active once OCS enable command is sent to the server"""
+        self.activated = True
 
-    def set_pattern_as_active(self):
-        self.active = True
-
-    def deactivate(self):
+    def tag_removed(self):
+        """Set tag as removed once OCS disable command is sent to the server"""
         print("Tag Removed")
-        self.active = False
-        self.one_shot_enabled = False
-        self.active_custom_tag = None
+        self.activated = False
+        self.active_tag = None
+
+
+class ChromatikOcsClient:
+    """Osc Client for Chromatik"""
+
+    OSC_SERVER_IP = "127.0.0.1"
+    OSC_SERVER_PORT = 7777
+
+    def __init__(self) -> None:
+        self.client = SimpleUDPClient(self.OSC_SERVER_IP, self.OSC_SERVER_PORT)
+
+    def tx_pattern_enable(self, reader_index, pattern_name):
+        """Send msg to enable a pattern"""
+        address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
+        self.client.send_message(address, "T")
+        print(f'Sent msg: {address}/{"T"}')
+
+    def tx_pattern_disable(self, reader_index, pattern_name):
+        """Send msg to disable a pattern"""
+        address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
+        self.client.send_message(address, "F")
+        print(f'Sent msg: {address}/{"F"}')
+
 
 class NfcController:
     """
     NFC Controller -- supports polling multiple readers
     """
+
     def __init__(self) -> None:
         self.readers = []
         self.reader_index = 0
 
-        self.client = SimpleUDPClient(ip, port)
-        
+        self.chromatik_client = ChromatikOcsClient()
+
         self.rw_params = {
-            'on-startup' : self.start_poll,
-            'on-connect' : self.tag_detected,
-            'iterations' : 1,
-            'interval' : 0.5
+            "on-startup": self.start_poll,
+            "on-connect": self.tag_detected,
+            "iterations": 1,
+            "interval": 0.5,
         }
 
         self.start_time_ms = time.time_ns() / 1000
@@ -130,24 +125,13 @@ class NfcController:
     def tag_detected(self, tag):
         """Print detected tag's NDEF data"""
         print("Tag detected")
-        if tag.ndef is not None:
-            try: 
-                current_reader = self.readers[self.reader_index]
-                if current_reader.is_new_tag_available(tag):
-                    print(f'Valid new tag detected')
-                    custom_tag = current_reader.active_custom_tag
-                    address = f'/channel/{self.reader_index}/pattern/{custom_tag.get_pattern()}/enable'
-                    data = 'T'
-                    print(f'Activating pattern: {address}/{data}, one-shot: {custom_tag.is_one_shot()}')
-                    self.client.send_message(address, data)
-                    current_reader.set_pattern_as_active()
-                    current_reader.one_shot_enabled = True
-
-            except Exception as e:
-                print(f'{e}')
-        else:
-            print("Detected tag without NDEF record. Add a record and try again")
-
+        current_reader = self.readers[self.reader_index]
+        current_reader.update(tag)
+        if current_reader.is_tag_new_and_valid():
+            self.chromatik_client.tx_pattern_enable(
+                self.reader_index, current_reader.active_tag.get_pattern()
+            )
+            current_reader.pattern_activated()
         return True
 
     def start_poll(self, targets):
@@ -162,9 +146,9 @@ class NfcController:
         elapsed = (time.time_ns() / 1000000) - self.start_time_ms
         return elapsed > self.TIMEOUT_ms
 
-    def close_all(self): 
+    def close_all(self):
         """
-        Close all detected NFC readers. If reader is not closed correctly, it 
+        Close all detected NFC readers. If reader is not closed correctly, it
         will not initialize correctly on the next run due issue on PN532
         """
         for nfc_reader in self.readers:
@@ -175,50 +159,45 @@ class NfcController:
         """Discover readers connected via FTDI USB to serial cables"""
         print("***Discovering Readers***")
         for dev in nfc.clf.transport.TTY.find("ttyUSB")[0]:
-            path = "tty:{0}".format(dev[8:])
+            path = f"tty:{dev[8:]}"
             try:
                 clf = nfc.ContactlessFrontend(path)
-                print(f'Found device: {clf.device}')
-                self.readers.append(NfcReader(clf)) 
+                print(f"Found device: {clf.device}")
+                self.readers.append(NfcReader(clf))
             except IOError as error:
                 if error.errno == errno.ENODEV:
-                    print(f'Reader found on {path} but not responding. Power cycle the reader and try again')
+                    print(
+                        f"Reader on {path} unresponsive. Power cycle reader and try again"
+                    )
                 else:
-                    print(f'Unkown error: {error}')
-    
-    def poll_readers(self): 
+                    print(f"Unkown error: {error}")
+
+    def poll_readers(self):
         """Poll each reader for a card, print the tag"""
         print("***Polling***")
 
         self.reader_index = 0
         for nfc_reader in self.readers:
-            try: 
+            try:
+                print(f"Polling reader {nfc_reader.clf.device}")
+                tag = nfc_reader.clf.connect(
+                    rdwr=self.rw_params, terminate=self.timeout
+                )
 
-                print(f'Polling reader {nfc_reader.clf.device}')
-                if nfc_reader.active:
-                    custom_tag = nfc_reader.active_custom_tag
-                    if custom_tag.is_one_shot() and nfc_reader.one_shot_enabled:
-                        address = f'/channel/{self.reader_index}/pattern/{custom_tag.get_pattern()}/enable'
-                        data = "F"
-                        print(f'Deactivating one-shot pattern: {address}/{data}, one-shot: {custom_tag.is_one_shot()}')
-                        self.client.send_message(address, data)
-                        nfc_reader.one_shot_enabled = False
-                tag = nfc_reader.clf.connect(rdwr=self.rw_params, terminate=self.timeout)
-                nfc_reader.update(tag)
-
+                # Send disable command once the tag is removed
+                # Don't send disable commands if it's one-shot
                 if tag is None:
-                    if nfc_reader.active:
-                        custom_tag = self.readers[self.reader_index].active_custom_tag
-                        if not custom_tag.is_one_shot():
-                            address = f'/channel/{self.reader_index}/pattern/{custom_tag.get_pattern()}/enable'
-                            data = "F"
-                            print(f'Deactivating pattern: {address}/{data}')
-                            self.client.send_message(address, data)
-                        nfc_reader.deactivate()
-            except: 
-                pass
+                    nfc_reader.update(tag)
+                    if nfc_reader.activated and not nfc_reader.active_tag.is_one_shot():
+                        self.chromatik_client.tx_pattern_disable(
+                            self.reader_index, nfc_reader.active_tag.get_pattern()
+                        )
+                        nfc_reader.tag_removed()
+
+            except Exception as unknown_exception:
+                print(f"{unknown_exception}")
             self.reader_index += 1
-        
+
 
 if __name__ == "__main__":
     print("***CTRL+C or pskill python to exit***")
@@ -227,23 +206,16 @@ if __name__ == "__main__":
 
     if len(controller.readers) == 0:
         print("***No devices found. Exiting***")
-        exit() 
+        sys.exit()
 
     handler = Sighandler()
-    signal.signal(signal.SIGINT, handler.signal_handler)    
-    signal.signal(signal.SIGTERM, handler.signal_handler)    
+    signal.signal(signal.SIGINT, handler.signal_handler)
+    signal.signal(signal.SIGTERM, handler.signal_handler)
+
     while not handler.sigint:
-        try: 
+        try:
             controller.poll_readers()
             time.sleep(0.2)
-        except:
+        except Exception as uknown_exception:
             controller.close_all()
     controller.close_all()
-
-
-# if __name__ == "__main__":
-#     client = SimpleUDPClient("127.0.0.1", 7777)
-#     for x in range(10):
-#         client.send_message("/filter", 5)
-#         time.sleep(1)
-#         print("hi")
