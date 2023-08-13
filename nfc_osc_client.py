@@ -36,7 +36,7 @@ class NfcReader:
         self.last_tag = None
         self.current_tag = None
 
-        self.active_tag: CustomTextTag = None
+        self.active_tag = None
         self.activated = False
 
     def update(self, tag):
@@ -61,7 +61,8 @@ class NfcReader:
                     print("Valid header")
                     self.active_tag = new_text_tag
                     valid = True
-                print("Missing NFC NDEF header text. Format and try again")
+                else: 
+                    print("Missing NFC NDEF header text. Format and try again")
             else:
                 print("Detected tag without NDEF record.")
                 # check the list of hard coded serial numbers
@@ -88,11 +89,11 @@ class ChromatikOcsClient:
     def __init__(self) -> None:
         self.client = SimpleUDPClient(self.OSC_SERVER_IP, self.OSC_SERVER_PORT)
 
-    def tx_pattern_enable(self, reader_index, pattern_name):
+    def tx_pattern_enable(self, reader_index, pattern_name, one_shot):
         """Send msg to enable a pattern"""
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
         self.client.send_message(address, "T")
-        print(f'Sent msg: {address}/{"T"}')
+        print(f'Sent msg: {address}/{"T"}, one shot: {one_shot}')
 
     def tx_pattern_disable(self, reader_index, pattern_name):
         """Send msg to disable a pattern"""
@@ -127,9 +128,9 @@ class NfcController:
         print("Tag detected")
         current_reader = self.readers[self.reader_index]
         current_reader.update(tag)
-        if current_reader.is_tag_new_and_valid():
+        if current_reader.is_current_tag_new_and_valid():
             self.chromatik_client.tx_pattern_enable(
-                self.reader_index, current_reader.active_tag.get_pattern()
+                self.reader_index, current_reader.active_tag.get_pattern(), current_reader.active_tag.is_one_shot()
             )
             current_reader.pattern_activated()
         return True
@@ -188,10 +189,11 @@ class NfcController:
                 # Don't send disable commands if it's one-shot
                 if tag is None:
                     nfc_reader.update(tag)
-                    if nfc_reader.activated and not nfc_reader.active_tag.is_one_shot():
-                        self.chromatik_client.tx_pattern_disable(
-                            self.reader_index, nfc_reader.active_tag.get_pattern()
-                        )
+                    if nfc_reader.activated:
+                        if not nfc_reader.active_tag.is_one_shot():
+                            self.chromatik_client.tx_pattern_disable(
+                                self.reader_index, nfc_reader.active_tag.get_pattern()
+                            )
                         nfc_reader.tag_removed()
 
             except Exception as unknown_exception:

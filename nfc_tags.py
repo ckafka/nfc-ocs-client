@@ -38,17 +38,10 @@ class CustomTextTag(ElderMothertagBase):
         """Update internal data based on provided NDEF text record string"""
         self.tag_data = record.text.split(";")
         self.valid_header = self.tag_data[0] == "eldermother"
-        self.pattern = self.tag_data[1].split(":")[1]
+        self.pattern_name = self.tag_data[1].split(":")[1]
         self.one_shot = self.tag_data[2].split(":")[1] in ["yes", "y", "true"]
 
     def is_header_valid(self):
         """Return true if the NDEF record header matches the expected string"""
         return self.valid_header
 
-    def get_pattern(self):
-        """Return the patter as a string"""
-        return self.pattern_name
-
-    def is_one_shot(self):
-        """return True if card is of type one-shot"""
-        return self.one_shot
