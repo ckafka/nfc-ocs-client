@@ -174,7 +174,7 @@ class NfcController:
     def discover_readers(self):
         """Discover readers connected via FTDI USB to serial cables"""
         print("***Discovering Readers***")
-        for dev in nfc.clf.transport.TTY.find("tty")[0]:
+        for dev in nfc.clf.transport.TTY.find("ttyUSB")[0]:
             path = "tty:{0}".format(dev[8:])
             try:
                 clf = nfc.ContactlessFrontend(path)
