@@ -27,7 +27,7 @@ if __name__ == "__main__":
         value = ",s T"
         try: 
             client.send_message(address, value)
-            time.sleep(5)
+            time.sleep(0.5)
             print(f"Sent {address}/{value} to {args.ip} @ {args.port}")
         except Exception as unknown_err:
-            print(f'{unknown_err}')
+            print(f'Error: {unknown_err}')
