@@ -92,13 +92,13 @@ class ChromatikOcsClient:
     def tx_pattern_enable(self, reader_index, pattern_name, one_shot):
         """Send msg to enable a pattern"""
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
-        self.client.send_message(address, "T")
+        self.client.send_message(address, ",s T")
         print(f'Sent msg: {address}/{"T"}, one shot: {one_shot}')
 
     def tx_pattern_disable(self, reader_index, pattern_name):
         """Send msg to disable a pattern"""
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
-        self.client.send_message(address, "F")
+        self.client.send_message(address, ",s F")
         print(f'Sent msg: {address}/{"F"}')
 
 
