@@ -25,6 +25,9 @@ if __name__ == "__main__":
     for x in range(10):
         address = "/channel/0/pattern/thunder/enable"
         value = ",s T"
-        client.send_message(address, value)
-        time.sleep(1)
-        print(f"Sent {address}/{value} to {args.ip} @ {args.port}")
+        try: 
+            client.send_message(address, value)
+            time.sleep(1)
+            print(f"Sent {address}/{value} to {args.ip} @ {args.port}")
+        except Exception as unknown_err:
+            print(f'{unknown_err}')
