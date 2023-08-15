@@ -5,11 +5,12 @@ import errno
 import signal
 import time
 import sys
+import argparse
 
 import nfc
 import nfc.clf.device
 import nfc.clf.transport
-from pythonosc.udp_client import SimpleUDPClient
+from osc_tcp_client import OscTcpClient
 
 from nfc_tags import CustomTextTag
 
@@ -83,23 +84,33 @@ class NfcReader:
 class ChromatikOcsClient:
     """Osc Client for Chromatik"""
 
-    OSC_SERVER_IP = "127.0.0.1"
-    OSC_SERVER_PORT = 7777
+    def __init__(self, dest_ip, dest_port) -> None:
+        try: 
+            self.client = OscTcpClient(dest_ip, dest_port)
+            self.init = True
+        except Exception as unkown_exception: 
+            self.init = False
+            print(f'Failed to open TCP port due to error ({unkown_exception}). Messages will not send')
 
-    def __init__(self) -> None:
-        self.client = SimpleUDPClient(self.OSC_SERVER_IP, self.OSC_SERVER_PORT)
 
     def tx_pattern_enable(self, reader_index, pattern_name, one_shot):
         """Send msg to enable a pattern"""
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
-        self.client.send_message(address, "T")
-        print(f'Sent msg: {address}/{"T"}, one shot: {one_shot}')
+        
+        if not self.init:
+            print(f'OSC port not open. Failed to send msg: {address}/{",s T"}, one shot: {one_shot}')
+        else: 
+            self.client.send_message(address, ",s T")
+            print(f'Sent msg: {address}/{",s T"}, one shot: {one_shot}')
 
     def tx_pattern_disable(self, reader_index, pattern_name):
         """Send msg to disable a pattern"""
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
-        self.client.send_message(address, "F")
-        print(f'Sent msg: {address}/{"F"}')
+        if not self.init:
+            print(f'OSC port not open. Failed to send msg: {address}/{",s F"}')
+        else: 
+            self.client.send_message(address, ",s F")
+            print(f'Sent msg: {address}/{",s F"}')
 
 
 class NfcController:
@@ -107,11 +118,11 @@ class NfcController:
     NFC Controller -- supports polling multiple readers
     """
 
-    def __init__(self) -> None:
+    def __init__(self, dest_ip, dest_port) -> None:
         self.readers = []
         self.reader_index = 0
 
-        self.chromatik_client = ChromatikOcsClient()
+        self.chromatik_client = ChromatikOcsClient(dest_ip, dest_port)
 
         self.rw_params = {
             "on-startup": self.start_poll,
@@ -159,19 +170,22 @@ class NfcController:
     def discover_readers(self):
         """Discover readers connected via FTDI USB to serial cables"""
         print("***Discovering Readers***")
-        for dev in nfc.clf.transport.TTY.find("ttyUSB")[0]:
-            path = f"tty:{dev[8:]}"
-            try:
-                clf = nfc.ContactlessFrontend(path)
-                print(f"Found device: {clf.device}")
-                self.readers.append(NfcReader(clf))
-            except IOError as error:
-                if error.errno == errno.ENODEV:
-                    print(
-                        f"Reader on {path} unresponsive. Power cycle reader and try again"
-                    )
-                else:
-                    print(f"Unkown error: {error}")
+        ftdi_cables = nfc.clf.transport.TTY.find("ttyUSB")
+        if ftdi_cables is not None:
+            for dev in ftdi_cables[0]:
+                path = f"tty:{dev[8:]}"
+                try:
+                    clf = nfc.ContactlessFrontend(path)
+                    print(f"Found device: {clf.device}")
+                    self.readers.append(NfcReader(clf))
+                except IOError as error:
+                    if error.errno == errno.ENODEV:
+                        print(
+                            f"Reader on {path} unresponsive. Power cycle reader and try again"
+                        )
+                    else:
+                        print(f"Unkown error: {error}")
+        
 
     def poll_readers(self):
         """Poll each reader for a card, print the tag"""
@@ -203,7 +217,12 @@ class NfcController:
 
 if __name__ == "__main__":
     print("***CTRL+C or pskill python to exit***")
-    controller = NfcController()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ip", default="127.0.0.1", help="The ip to listen on")
+    parser.add_argument("--port", type=int, default=7777, help="The port to listen on")
+    args = parser.parse_args()
+
+    controller = NfcController(args.ip, args.port)
     controller.discover_readers()
 
     if len(controller.readers) == 0:
