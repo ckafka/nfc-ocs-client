@@ -170,19 +170,22 @@ class NfcController:
     def discover_readers(self):
         """Discover readers connected via FTDI USB to serial cables"""
         print("***Discovering Readers***")
-        for dev in nfc.clf.transport.TTY.find("ttyUSB")[0]:
-            path = f"tty:{dev[8:]}"
-            try:
-                clf = nfc.ContactlessFrontend(path)
-                print(f"Found device: {clf.device}")
-                self.readers.append(NfcReader(clf))
-            except IOError as error:
-                if error.errno == errno.ENODEV:
-                    print(
-                        f"Reader on {path} unresponsive. Power cycle reader and try again"
-                    )
-                else:
-                    print(f"Unkown error: {error}")
+        ftdi_cables = nfc.clf.transport.TTY.find("ttyUSB")
+        if ftdi_cables is not None:
+            for dev in ftdi_cables[0]:
+                path = f"tty:{dev[8:]}"
+                try:
+                    clf = nfc.ContactlessFrontend(path)
+                    print(f"Found device: {clf.device}")
+                    self.readers.append(NfcReader(clf))
+                except IOError as error:
+                    if error.errno == errno.ENODEV:
+                        print(
+                            f"Reader on {path} unresponsive. Power cycle reader and try again"
+                        )
+                    else:
+                        print(f"Unkown error: {error}")
+        
 
     def poll_readers(self):
         """Poll each reader for a card, print the tag"""
