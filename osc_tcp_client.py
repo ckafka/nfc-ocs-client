@@ -6,6 +6,7 @@ from pythonosc.osc_message import OscMessage
 from pythonosc.osc_bundle import OscBundle
 
 from typing import Union
+from collections.abc import Iterable
 
 class OscTcpClient:
     """OSC TCP Client"""
@@ -35,6 +36,8 @@ class OscTcpClient:
         builder = OscMessageBuilder(address=address)
         if value is None:
             values = []
+        elif not isinstance(value, Iterable) or isinstance(value, (str, bytes)):
+            values = [value]
         else:
             values = value
         for val in values:

@@ -23,11 +23,11 @@ if __name__ == "__main__":
     client = OscTcpClient(args.ip, args.port)
 
     for x in range(10):
-        address = "/channel/0/pattern/thunder/enable"
+        address = "/channel/1/pattern/thunder/enable"
         value = ",s T"
         try: 
             client.send_message(address, value)
-            time.sleep(1)
+            time.sleep(5)
             print(f"Sent {address}/{value} to {args.ip} @ {args.port}")
         except Exception as unknown_err:
             print(f'{unknown_err}')

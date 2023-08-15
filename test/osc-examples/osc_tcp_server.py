@@ -30,7 +30,7 @@ class _TCPHandler(socketserver.BaseRequestHandler):
         threads/processes will be spawned.
         """
         server = cast(OSCTCPServer, self.server)
-        server.dispatcher.call_handlers_for_packet(self.request[0], self.client_address)
+        server.dispatcher.call_handlers_for_packet(self.request.recv(1024), self.client_address)
 
 
 def _is_valid_request(request: _RequestType) -> bool:
@@ -39,8 +39,7 @@ def _is_valid_request(request: _RequestType) -> bool:
     Returns:
         True if request is OSC bundle or OSC message
     """
-    assert isinstance(request, tuple)  # TODO: handle requests which are passed just as a socket?
-    data = request[0]
+    data = request.recv(4096)
     return (
             osc_bundle.OscBundle.dgram_is_bundle(data)
             or osc_message.OscMessage.dgram_is_message(data))
@@ -70,7 +69,8 @@ class OSCTCPServer(socketserver.TCPServer):
         Returns:
             True if request is OSC bundle or OSC message
         """
-        return _is_valid_request(request)
+        valid = _is_valid_request(request)
+        return valid
 
     @property
     def dispatcher(self) -> Dispatcher:
