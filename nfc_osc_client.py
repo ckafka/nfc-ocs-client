@@ -8,11 +8,13 @@ import sys
 import argparse
 import json
 
+
 import nfc
 import nfc.clf.device
 import nfc.clf.transport
 from osc_tcp_client import OscTcpClient
 from binascii import hexlify
+
 
 
 from nfc_tags import CustomTextTag, HardCodedTag
@@ -246,6 +248,7 @@ if __name__ == "__main__":
             time.sleep(1)
 
     controller = NfcController(client)
+
     controller.discover_readers()
 
     if len(controller.readers) == 0:
