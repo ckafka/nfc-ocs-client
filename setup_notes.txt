@@ -1,0 +1,10 @@
+# Starting the service
+sudo systemctl daemon-reload
+sudo systemctl enable nfc_osc_client.service
+
+sudo systemctl start nfc_osc_client.service
+sudo systemctl stop nfc_osc_client.service 
+
+sudo systemctl status nfc_osc_client.service 
+
+sudo nano /lib/systemd/system/nfc_osc_client.service

@@ -6,13 +6,18 @@ import signal
 import time
 import sys
 import argparse
+import json
+
 
 import nfc
 import nfc.clf.device
 import nfc.clf.transport
 from osc_tcp_client import OscTcpClient
+from binascii import hexlify
 
-from nfc_tags import CustomTextTag
+
+
+from nfc_tags import CustomTextTag, HardCodedTag
 
 
 class Sighandler:
@@ -40,6 +45,9 @@ class NfcReader:
         self.active_tag = None
         self.activated = False
 
+        config_file = open("configs/elder_mother_tags.json", "r")
+        self.tag_dictionary = json.load(config_file)
+
     def update(self, tag):
         """Set new tag information"""
         self.last_tag = self.current_tag
@@ -65,9 +73,15 @@ class NfcReader:
                 else: 
                     print("Missing NFC NDEF header text. Format and try again")
             else:
-                print("Detected tag without NDEF record.")
-                # check the list of hard coded serial numbers
-                valid = False
+                print("Detected tag without NDEF record. Checking dictionary...") 
+                tag_id = hexlify(self.current_tag.identifier).decode().upper()
+                if tag_id in self.tag_dictionary:
+                    values = self.tag_dictionary[tag_id]
+                    print(f'Found tag {tag_id} with params {values}')
+                    self.active_tag = HardCodedTag(self.current_tag, values[0], values[1], values[2])
+                    valid = True 
+                else:
+                    print("Unknown tag, please add to dictionary")
             return valid
 
     def pattern_activated(self):
@@ -90,7 +104,8 @@ class ChromatikOcsClient:
             self.init = True
         except Exception as unkown_exception: 
             self.init = False
-            print(f'Failed to open TCP port due to error ({unkown_exception}). Messages will not send')
+            print(f'Failed to open TCP port {dest_port} at {dest_ip} due to error ({unkown_exception}). Messages will not send')
+            raise unkown_exception
 
 
     def tx_pattern_enable(self, reader_index, pattern_name, one_shot):
@@ -118,11 +133,11 @@ class NfcController:
     NFC Controller -- supports polling multiple readers
     """
 
-    def __init__(self, dest_ip, dest_port) -> None:
+    def __init__(self, client) -> None:
         self.readers = []
         self.reader_index = 0
 
-        self.chromatik_client = ChromatikOcsClient(dest_ip, dest_port)
+        self.chromatik_client = client
 
         self.rw_params = {
             "on-startup": self.start_poll,
@@ -220,9 +235,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ip", default="127.0.0.1", help="The ip to listen on")
     parser.add_argument("--port", type=int, default=7777, help="The port to listen on")
+    parser.add_argument("--quiet", type=bool, default=False, help="The port to listen on")
     args = parser.parse_args()
 
-    controller = NfcController(args.ip, args.port)
+    success = False 
+    while not success and not args.quiet:
+        print("trying to init TCP...")
+        try:
+            client = ChromatikOcsClient(args.ip, args.port)
+            success = client.init
+        except: 
+            time.sleep(1)
+
+    controller = NfcController(client)
+
     controller.discover_readers()
 
     if len(controller.readers) == 0:
