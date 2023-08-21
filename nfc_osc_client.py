@@ -6,13 +6,16 @@ import signal
 import time
 import sys
 import argparse
+import json
 
 import nfc
 import nfc.clf.device
 import nfc.clf.transport
 from osc_tcp_client import OscTcpClient
+from binascii import hexlify
 
-from nfc_tags import CustomTextTag
+
+from nfc_tags import CustomTextTag, HardCodedTag
 
 
 class Sighandler:
@@ -40,6 +43,9 @@ class NfcReader:
         self.active_tag = None
         self.activated = False
 
+        config_file = open("configs/elder_mother_tags.json", "r")
+        self.tag_dictionary = json.load(config_file)
+
     def update(self, tag):
         """Set new tag information"""
         self.last_tag = self.current_tag
@@ -65,9 +71,15 @@ class NfcReader:
                 else: 
                     print("Missing NFC NDEF header text. Format and try again")
             else:
-                print("Detected tag without NDEF record.")
-                # check the list of hard coded serial numbers
-                valid = False
+                print("Detected tag without NDEF record. Checking dictionary...") 
+                tag_id = hexlify(self.current_tag.identifier).decode().upper()
+                if tag_id in self.tag_dictionary:
+                    values = self.tag_dictionary[tag_id]
+                    print(f'Found tag {tag_id} with params {values}')
+                    self.active_tag = HardCodedTag(self.current_tag, values[0], values[1], values[2])
+                    valid = True 
+                else:
+                    print("Unknown tag, please add to dictionary")
             return valid
 
     def pattern_activated(self):

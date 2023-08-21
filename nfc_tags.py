@@ -9,7 +9,8 @@ class ElderMothertagBase():
     All tags must have some respresentation on whether they are one-
     shot and the name of the pattern
     """
-    def __init__(self) -> None:
+    def __init__(self, tag) -> None:
+        self.tag = tag
         self.one_shot = False
         self.pattern_name = ""
 
@@ -26,8 +27,7 @@ class CustomTextTag(ElderMothertagBase):
     """NFC tag with an NDEF record describing its type"""
 
     def __init__(self, tag):
-        ElderMothertagBase.__init__(self)
-        self.tag = tag
+        ElderMothertagBase.__init__(self, tag)
         self.valid_header = False
         if tag.ndef is not None:
             record = tag.ndef.records[0]
@@ -44,4 +44,11 @@ class CustomTextTag(ElderMothertagBase):
     def is_header_valid(self):
         """Return true if the NDEF record header matches the expected string"""
         return self.valid_header
+
+class HardCodedTag(ElderMothertagBase):
+    def __init__(self, tag, name, color, one_shot):
+        ElderMothertagBase.__init__(self, tag)
+        self.pattern_name = name
+        self.color = color
+        self.one_shot = one_shot in ["yes", "y", "true"]
 
