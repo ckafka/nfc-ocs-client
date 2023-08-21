@@ -16,7 +16,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dispatcher = Dispatcher()
-    dispatcher.map("/channel/1/pattern/thunder/enable", print)
+    dispatcher.map("/channel/0/pattern/name/enable", print)
 
     print("Serving on {}".format(args.ip))
 

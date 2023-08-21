@@ -102,7 +102,8 @@ class ChromatikOcsClient:
             self.init = True
         except Exception as unkown_exception: 
             self.init = False
-            print(f'Failed to open TCP port due to error ({unkown_exception}). Messages will not send')
+            print(f'Failed to open TCP port {dest_port} at {dest_ip} due to error ({unkown_exception}). Messages will not send')
+            raise unkown_exception
 
 
     def tx_pattern_enable(self, reader_index, pattern_name, one_shot):
@@ -130,11 +131,11 @@ class NfcController:
     NFC Controller -- supports polling multiple readers
     """
 
-    def __init__(self, dest_ip, dest_port) -> None:
+    def __init__(self, client) -> None:
         self.readers = []
         self.reader_index = 0
 
-        self.chromatik_client = ChromatikOcsClient(dest_ip, dest_port)
+        self.chromatik_client = client
 
         self.rw_params = {
             "on-startup": self.start_poll,
@@ -232,9 +233,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ip", default="127.0.0.1", help="The ip to listen on")
     parser.add_argument("--port", type=int, default=7777, help="The port to listen on")
+    parser.add_argument("--quiet", type=bool, default=False, help="The port to listen on")
     args = parser.parse_args()
 
-    controller = NfcController(args.ip, args.port)
+    success = False 
+    while not success and not args.quiet:
+        print("trying to init TCP...")
+        try:
+            client = ChromatikOcsClient(args.ip, args.port)
+            success = client.init
+        except: 
+            time.sleep(1)
+
+    controller = NfcController(client)
     controller.discover_readers()
 
     if len(controller.readers) == 0:
