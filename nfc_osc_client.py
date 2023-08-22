@@ -113,19 +113,19 @@ class ChromatikOcsClient:
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
         
         if not self.init:
-            print(f'OSC port not open. Failed to send msg: {address}/{",s T"}, one shot: {one_shot}')
+            print(f'OSC port not open. Failed to send msg: {address}/{"T"}, one shot: {one_shot}')
         else: 
-            self.client.send_message(address, ",s T")
-            print(f'Sent msg: {address}/{",s T"}, one shot: {one_shot}')
+            self.client.send_message(address, "T\n")
+            print(f'Sent msg: {address}/{"T"}, one shot: {one_shot}')
 
     def tx_pattern_disable(self, reader_index, pattern_name):
         """Send msg to disable a pattern"""
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
         if not self.init:
-            print(f'OSC port not open. Failed to send msg: {address}/{",s F"}')
+            print(f'OSC port not open. Failed to send msg: {address}/{"F"}')
         else: 
-            self.client.send_message(address, ",s F")
-            print(f'Sent msg: {address}/{",s F"}')
+            self.client.send_message(address, "F\n")
+            print(f'Sent msg: {address}/{"F"}')
 
 
 class NfcController:

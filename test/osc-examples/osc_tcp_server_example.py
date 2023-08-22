@@ -16,7 +16,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dispatcher = Dispatcher()
-    dispatcher.map("/channel/0/pattern/name/enable", print)
+    dispatcher.map("/channel/0/pattern/pattern1/enable", print)
 
     print("Serving on {}".format(args.ip))
 
@@ -27,5 +27,5 @@ if __name__ == "__main__":
     conn, addr = s.accept()
     while(1):
         data = conn.recv(200) 
-        dispatcher.call_handlers_for_packet(data, "/channel/1/pattern/thunder/enable")
+        dispatcher.call_handlers_for_packet(data, "/channel/0/pattern/pattern1/enable")
     conn.close()
