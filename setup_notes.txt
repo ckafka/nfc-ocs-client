@@ -8,3 +8,9 @@ sudo systemctl stop nfc_osc_client.service
 sudo systemctl status nfc_osc_client.service 
 
 sudo nano /lib/systemd/system/nfc_osc_client.service
+
+# Setting up the static ip
+sudo nano /etc/dhcpcd.conf
+edit the eth0 section
+
+ip is 192.168.0.10

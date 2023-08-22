@@ -23,7 +23,7 @@ if __name__ == "__main__":
     client = OscTcpClient(args.ip, args.port)
 
     for x in range(10):
-        address = "/channel/1/pattern/pattern1/enable"
+        address = "/channel/0/pattern/pattern1/enable"
         value = "T\n"
         try: 
             client.send_message(address, value)

@@ -27,5 +27,5 @@ if __name__ == "__main__":
     conn, addr = s.accept()
     while(1):
         data = conn.recv(200) 
-        dispatcher.call_handlers_for_packet(data, "/channel/1/pattern/pattern1/enable")
+        dispatcher.call_handlers_for_packet(data, "/channel/0/pattern/pattern1/enable")
     conn.close()
