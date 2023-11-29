@@ -16,7 +16,6 @@ from osc_tcp_client import OscTcpClient
 from binascii import hexlify
 
 
-
 from nfc_tags import CustomTextTag, HardCodedTag
 
 
@@ -70,16 +69,18 @@ class NfcReader:
                     print("Valid header")
                     self.active_tag = new_text_tag
                     valid = True
-                else: 
+                else:
                     print("Missing NFC NDEF header text. Format and try again")
             else:
-                print("Detected tag without NDEF record. Checking dictionary...") 
+                print("Detected tag without NDEF record. Checking dictionary...")
                 tag_id = hexlify(self.current_tag.identifier).decode().upper()
                 if tag_id in self.tag_dictionary:
                     values = self.tag_dictionary[tag_id]
-                    print(f'Found tag {tag_id} with params {values}')
-                    self.active_tag = HardCodedTag(self.current_tag, values[0], values[1], values[2])
-                    valid = True 
+                    print(f"Found tag {tag_id} with params {values}")
+                    self.active_tag = HardCodedTag(
+                        self.current_tag, values[0], values[1], values[2]
+                    )
+                    valid = True
                 else:
                     print("Unknown tag, please add to dictionary")
             return valid
@@ -99,33 +100,43 @@ class ChromatikOcsClient:
     """Osc Client for Chromatik"""
 
     def __init__(self, dest_ip, dest_port) -> None:
-        try: 
+        try:
+            self.dest_ip = dest_ip
+            self.dest_port = dest_port
             self.client = OscTcpClient(dest_ip, dest_port)
             self.init = True
-        except Exception as unkown_exception: 
+        except Exception as unkown_err:
             self.init = False
-            print(f'Failed to open TCP port {dest_port} at {dest_ip} due to error ({unkown_exception}). Messages will not send')
-            raise unkown_exception
-
+            print(f"Error: ({unkown_err}). Failed to open {dest_port} at {dest_ip}.")
+            raise unkown_err
 
     def tx_pattern_enable(self, reader_index, pattern_name, one_shot):
         """Send msg to enable a pattern"""
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
-        
         if not self.init:
-            print(f'OSC port not open. Failed to send msg: {address}/{"T"}, one shot: {one_shot}')
-        else: 
-            self.client.send_message(address, "T\n")
-            print(f'Sent msg: {address}/{"T"}, one shot: {one_shot}')
+            print(
+                f'OSC port not open. Failed to send msg: {address}/{"T"}, one shot: {one_shot}'
+            )
+        else:
+            try:
+                self.client.send_message(address, "T\n")
+                print(f'Sent msg: {address}/{"T"}, one shot: {one_shot}')
+            except Exception as unknown_exception:
+                print(f"Error {unknown_exception}: Attempting to reconnect...")
+                self.client = OscTcpClient(self.dest_ip, self.dest_port)
 
     def tx_pattern_disable(self, reader_index, pattern_name):
         """Send msg to disable a pattern"""
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
         if not self.init:
             print(f'OSC port not open. Failed to send msg: {address}/{"F"}')
-        else: 
-            self.client.send_message(address, "F\n")
-            print(f'Sent msg: {address}/{"F"}')
+        else:
+            try:
+                self.client.send_message(address, "F\n")
+                print(f'Sent msg: {address}/{"F"}')
+            except Exception as unknown_exception:
+                print(f"Error {unknown_exception}: Attempting to reconnect...")
+                self.client = OscTcpClient(self.dest_ip, self.dest_port)
 
 
 class NfcController:
@@ -156,7 +167,9 @@ class NfcController:
         current_reader.update(tag)
         if current_reader.is_current_tag_new_and_valid():
             self.chromatik_client.tx_pattern_enable(
-                self.reader_index, current_reader.active_tag.get_pattern(), current_reader.active_tag.is_one_shot()
+                self.reader_index,
+                current_reader.active_tag.get_pattern(),
+                current_reader.active_tag.is_one_shot(),
             )
             current_reader.pattern_activated()
         return True
@@ -200,7 +213,6 @@ class NfcController:
                         )
                     else:
                         print(f"Unkown error: {error}")
-        
 
     def poll_readers(self):
         """Poll each reader for a card, print the tag"""
@@ -235,16 +247,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ip", default="127.0.0.1", help="The ip to listen on")
     parser.add_argument("--port", type=int, default=7777, help="The port to listen on")
-    parser.add_argument("--quiet", type=bool, default=False, help="The port to listen on")
+    parser.add_argument(
+        "--quiet", type=bool, default=False, help="The port to listen on"
+    )
     args = parser.parse_args()
 
-    success = False 
+    success = False
     while not success and not args.quiet:
         print("trying to init TCP...")
         try:
             client = ChromatikOcsClient(args.ip, args.port)
             success = client.init
-        except: 
+        except:
             time.sleep(1)
 
     controller = NfcController(client)
