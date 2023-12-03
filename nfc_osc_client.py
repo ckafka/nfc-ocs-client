@@ -122,8 +122,12 @@ class ChromatikOcsClient:
                 self.client.send_message(address, "T\n")
                 print(f'Sent msg: {address}/{"T"}, one shot: {one_shot}')
             except Exception as unknown_exception:
-                print(f"Error {unknown_exception}: Attempting to reconnect...")
-                self.client = OscTcpClient(self.dest_ip, self.dest_port)
+                try:
+                    print(f"Error {unknown_exception}: Attempting to reconnect...")
+                    self.client = OscTcpClient(self.dest_ip, self.dest_port)
+                    print("Reconnected")
+                except:
+                    print("Server not found")
 
     def tx_pattern_disable(self, reader_index, pattern_name):
         """Send msg to disable a pattern"""
@@ -135,8 +139,12 @@ class ChromatikOcsClient:
                 self.client.send_message(address, "F\n")
                 print(f'Sent msg: {address}/{"F"}')
             except Exception as unknown_exception:
-                print(f"Error {unknown_exception}: Attempting to reconnect...")
-                self.client = OscTcpClient(self.dest_ip, self.dest_port)
+                try:
+                    print(f"Error {unknown_exception}: Attempting to reconnect...")
+                    self.client = OscTcpClient(self.dest_ip, self.dest_port)
+                    print("Reconnected")
+                except:
+                    print("Server not found")
 
 
 class NfcController:
