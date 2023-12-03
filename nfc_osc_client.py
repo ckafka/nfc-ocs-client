@@ -104,16 +104,24 @@ class ChromatikOcsClient:
             self.dest_ip = dest_ip
             self.dest_port = dest_port
             self.client = OscTcpClient(dest_ip, dest_port)
-            self.init = True
+            self.connected = self.client.connected
         except Exception as unkown_err:
             self.init = False
             print(f"Error: ({unkown_err}). Failed to open {dest_port} at {dest_ip}.")
             raise unkown_err
 
+    def connect(self):
+        self.connected = False
+        try: 
+            self.connected = self.client.connect() 
+        except Exception as e:
+            pass
+        return self.connected
+
     def tx_pattern_enable(self, reader_index, pattern_name, one_shot):
         """Send msg to enable a pattern"""
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
-        if not self.init:
+        if not self.connected:
             print(
                 f'OSC port not open. Failed to send msg: {address}/{"T"}, one shot: {one_shot}'
             )
@@ -121,30 +129,22 @@ class ChromatikOcsClient:
             try:
                 self.client.send_message(address, "T\n")
                 print(f'Sent msg: {address}/{"T"}, one shot: {one_shot}')
-            except Exception as unknown_exception:
-                try:
-                    print(f"Error {unknown_exception}: Attempting to reconnect...")
-                    self.client = OscTcpClient(self.dest_ip, self.dest_port)
-                    print("Reconnected")
-                except:
-                    print("Server not found")
+            except Exception as e:
+                print(f'failed to send message: {e}')
+                self.connected = False
 
     def tx_pattern_disable(self, reader_index, pattern_name):
         """Send msg to disable a pattern"""
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
-        if not self.init:
+        if not self.connected:
             print(f'OSC port not open. Failed to send msg: {address}/{"F"}')
         else:
             try:
                 self.client.send_message(address, "F\n")
                 print(f'Sent msg: {address}/{"F"}')
-            except Exception as unknown_exception:
-                try:
-                    print(f"Error {unknown_exception}: Attempting to reconnect...")
-                    self.client = OscTcpClient(self.dest_ip, self.dest_port)
-                    print("Reconnected")
-                except:
-                    print("Server not found")
+            except Exception as e: #errno 32 is broken pipe, errno 104 is connection reset by peer
+                print(f'failed to send message: {e}')
+                self.connected = False
 
 
 class NfcController:
@@ -249,6 +249,14 @@ class NfcController:
                 print(f"{unknown_exception}")
             self.reader_index += 1
 
+        if not self.chromatik_client.connected:
+            try: 
+                print("Missing TCP connection. Retrying...")
+                self.chromatik_client.connect() # retry
+                if self.chromatik_client.connected:
+                    print("Reconnected")
+            except:
+                pass
 
 if __name__ == "__main__":
     print("***CTRL+C or pskill python to exit***")
@@ -261,13 +269,15 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     success = False
+    client = ChromatikOcsClient(args.ip, args.port)
+    success = client.connected
     while not success and not args.quiet:
-        print("trying to init TCP...")
+        print("Waiting for TCP server...")
         try:
-            client = ChromatikOcsClient(args.ip, args.port)
-            success = client.init
-        except:
-            time.sleep(1)
+            success = client.connect()
+        except Exception as e:
+            print(f'Failed to connect: {e}')
+        time.sleep(1)
 
     controller = NfcController(client)
 
