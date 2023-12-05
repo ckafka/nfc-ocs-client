@@ -266,6 +266,10 @@ class NfcController:
         """Poll each reader for a card, print the tag"""
         print("***Polling***")
 
+        if len(self.readers) < 3: 
+            print("Failed to find at least three readers, quitting...")
+            raise OSError
+
         self.reader_index = 0
         for nfc_reader in self.readers:
             try:
@@ -336,4 +340,5 @@ if __name__ == "__main__":
             controller.poll_readers()
         except Exception as uknown_exception:
             controller.close_all()
+            quit()
     controller.close_all()
