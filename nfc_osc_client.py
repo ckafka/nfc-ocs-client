@@ -7,6 +7,7 @@ import time
 import sys
 import argparse
 import json
+import lgpio
 
 
 import nfc
@@ -14,7 +15,6 @@ import nfc.clf.device
 import nfc.clf.transport
 from osc_tcp_client import OscTcpClient
 from binascii import hexlify
-
 
 
 from nfc_tags import CustomTextTag, HardCodedTag
@@ -37,7 +37,7 @@ class NfcReader:
     NFC reader
     """
 
-    def __init__(self, clf):
+    def __init__(self, clf, led_gpio, gpio_if):
         self.clf = clf
         self.last_tag = None
         self.current_tag = None
@@ -48,16 +48,27 @@ class NfcReader:
         config_file = open("configs/elder_mother_tags.json", "r")
         self.tag_dictionary = json.load(config_file)
 
+        self.led_gpio = int(led_gpio)
+        self.gpio_if = gpio_if
+        lgpio.gpio_claim_output(gpio_if, self.led_gpio)
+        self.set_led(True)
+        self.led_enabled = True
+
     def update(self, tag):
         """Set new tag information"""
         self.last_tag = self.current_tag
         self.current_tag = tag
+
+    def set_led(self, state): 
+        self.led_enabled = state
+        lgpio.gpio_write(self.gpio_if, self.led_gpio, self.led_enabled)
 
     def is_current_tag_new_and_valid(self):
         """Return true if the current tag is new and valid"""
 
         if self.activated:
             print("A tag is already active")
+            self.set_led(not self.led_enabled)
             return False
 
         valid = False
@@ -70,16 +81,18 @@ class NfcReader:
                     print("Valid header")
                     self.active_tag = new_text_tag
                     valid = True
-                else: 
+                else:
                     print("Missing NFC NDEF header text. Format and try again")
             else:
-                print("Detected tag without NDEF record. Checking dictionary...") 
+                print("Detected tag without NDEF record. Checking dictionary...")
                 tag_id = hexlify(self.current_tag.identifier).decode().upper()
                 if tag_id in self.tag_dictionary:
                     values = self.tag_dictionary[tag_id]
-                    print(f'Found tag {tag_id} with params {values}')
-                    self.active_tag = HardCodedTag(self.current_tag, values[0], values[1], values[2])
-                    valid = True 
+                    print(f"Found tag {tag_id} with params {values}")
+                    self.active_tag = HardCodedTag(
+                        self.current_tag, values[0], values[1], values[2]
+                    )
+                    valid = True
                 else:
                     print("Unknown tag, please add to dictionary")
             return valid
@@ -92,6 +105,7 @@ class NfcReader:
         """Set tag as removed once OCS disable command is sent to the server"""
         print("Tag Removed")
         self.activated = False
+        self.set_led(True)
         self.active_tag = None
 
 
@@ -99,33 +113,51 @@ class ChromatikOcsClient:
     """Osc Client for Chromatik"""
 
     def __init__(self, dest_ip, dest_port) -> None:
-        try: 
+        try:
+            self.dest_ip = dest_ip
+            self.dest_port = dest_port
             self.client = OscTcpClient(dest_ip, dest_port)
-            self.init = True
-        except Exception as unkown_exception: 
+            self.connected = self.client.connected
+        except Exception as unkown_err:
             self.init = False
-            print(f'Failed to open TCP port {dest_port} at {dest_ip} due to error ({unkown_exception}). Messages will not send')
-            raise unkown_exception
+            print(f"Error: ({unkown_err}). Failed to open {dest_port} at {dest_ip}.")
+            raise unkown_err
 
+    def connect(self):
+        self.connected = False
+        try: 
+            self.connected = self.client.connect() 
+        except Exception as e:
+            pass
+        return self.connected
 
     def tx_pattern_enable(self, reader_index, pattern_name, one_shot):
         """Send msg to enable a pattern"""
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
-        
-        if not self.init:
-            print(f'OSC port not open. Failed to send msg: {address}/{"T"}, one shot: {one_shot}')
-        else: 
-            self.client.send_message(address, "T\n")
-            print(f'Sent msg: {address}/{"T"}, one shot: {one_shot}')
+        if not self.connected:
+            print(
+                f'OSC port not open. Failed to send msg: {address}/{"T"}, one shot: {one_shot}'
+            )
+        else:
+            try:
+                self.client.send_message(address, "T\n")
+                print(f'Sent msg: {address}/{"T"}, one shot: {one_shot}')
+            except Exception as e:
+                print(f'failed to send message: {e}')
+                self.connected = False
 
     def tx_pattern_disable(self, reader_index, pattern_name):
         """Send msg to disable a pattern"""
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
-        if not self.init:
+        if not self.connected:
             print(f'OSC port not open. Failed to send msg: {address}/{"F"}')
-        else: 
-            self.client.send_message(address, "F\n")
-            print(f'Sent msg: {address}/{"F"}')
+        else:
+            try:
+                self.client.send_message(address, "F\n")
+                print(f'Sent msg: {address}/{"F"}')
+            except Exception as e: #errno 32 is broken pipe, errno 104 is connection reset by peer
+                print(f'failed to send message: {e}')
+                self.connected = False
 
 
 class NfcController:
@@ -146,8 +178,15 @@ class NfcController:
             "interval": 0.5,
         }
 
-        self.start_time_ms = time.time_ns() / 1000
+        self.connect = False
+
+        self.start_time_ms = time.time_ns() / 1000000
         self.TIMEOUT_ms = 100
+
+        ch_config_file = open("configs/channel_mapping.json", "r")
+        self.ch_config = json.load(ch_config_file)
+
+        self.gpio_if = lgpio.gpiochip_open(0)
 
     def tag_detected(self, tag):
         """Print detected tag's NDEF data"""
@@ -156,10 +195,12 @@ class NfcController:
         current_reader.update(tag)
         if current_reader.is_current_tag_new_and_valid():
             self.chromatik_client.tx_pattern_enable(
-                self.reader_index, current_reader.active_tag.get_pattern(), current_reader.active_tag.is_one_shot()
+                self.reader_index,
+                current_reader.active_tag.get_pattern(),
+                current_reader.active_tag.is_one_shot(),
             )
             current_reader.pattern_activated()
-        return True
+        return False
 
     def start_poll(self, targets):
         """Start the stop watch. Must return targets to clf"""
@@ -180,9 +221,29 @@ class NfcController:
         """
         for nfc_reader in self.readers:
             nfc_reader.clf.close()
+            nfc_reader.set_led(False)
         print("***Closed all readers***")
 
-    def discover_readers(self):
+    def discover_readers_from_config(self): 
+        """
+        Load configuration data from a hard coded config file. 
+        To automatically discover readers, use "discover readers"
+        """
+        for key in self.ch_config: 
+            try:
+                path = "tty:" + self.ch_config[key]["ftdi_sn"]
+                time.sleep(0.1)
+                clf = nfc.ContactlessFrontend(path)
+                print(f'Found {key} at {path}') 
+                self.readers.append(NfcReader(clf, self.ch_config[key]["led_gpio"], self.gpio_if))
+            except OSError as error:
+                if error.errno == errno.ENODEV:
+                    print(f'Reader on {path} unresponsive. Power cycle reader and try again.')
+                else: 
+                    print(f'Unknown error: {error}. Unable to find device at {path}')
+
+
+    def discover_readers_auto(self):
         """Discover readers connected via FTDI USB to serial cables"""
         print("***Discovering Readers***")
         ftdi_cables = nfc.clf.transport.TTY.find("ttyUSB")
@@ -192,7 +253,7 @@ class NfcController:
                 try:
                     clf = nfc.ContactlessFrontend(path)
                     print(f"Found device: {clf.device}")
-                    self.readers.append(NfcReader(clf))
+                    self.readers.append(NfcReader(clf, self.ch_config[key]["led_gpio"], self.gpio_if))
                 except IOError as error:
                     if error.errno == errno.ENODEV:
                         print(
@@ -200,11 +261,14 @@ class NfcController:
                         )
                     else:
                         print(f"Unkown error: {error}")
-        
 
     def poll_readers(self):
         """Poll each reader for a card, print the tag"""
         print("***Polling***")
+
+        if len(self.readers) < 3: 
+            print("Failed to find at least three readers, quitting...")
+            raise OSError
 
         self.reader_index = 0
         for nfc_reader in self.readers:
@@ -229,27 +293,39 @@ class NfcController:
                 print(f"{unknown_exception}")
             self.reader_index += 1
 
+        if not self.chromatik_client.connected:
+            try: 
+                print("Missing TCP connection. Retrying...")
+                self.chromatik_client.connect() # retry
+                if self.chromatik_client.connected:
+                    print("Reconnected")
+            except:
+                pass
 
 if __name__ == "__main__":
     print("***CTRL+C or pskill python to exit***")
     parser = argparse.ArgumentParser()
     parser.add_argument("--ip", default="127.0.0.1", help="The ip to listen on")
     parser.add_argument("--port", type=int, default=7777, help="The port to listen on")
-    parser.add_argument("--quiet", type=bool, default=False, help="The port to listen on")
+    parser.add_argument(
+        "--quiet", type=bool, default=False, help="The port to listen on"
+    )
     args = parser.parse_args()
 
-    success = False 
+    success = False
+    client = ChromatikOcsClient(args.ip, args.port)
+    success = client.connected
     while not success and not args.quiet:
-        print("trying to init TCP...")
+        print("Waiting for TCP server...")
         try:
-            client = ChromatikOcsClient(args.ip, args.port)
-            success = client.init
-        except: 
-            time.sleep(1)
+            success = client.connect()
+        except Exception as e:
+            print(f'Failed to connect: {e}')
+        time.sleep(1)
 
     controller = NfcController(client)
 
-    controller.discover_readers()
+    controller.discover_readers_from_config()
 
     if len(controller.readers) == 0:
         print("***No devices found. Exiting***")
@@ -262,7 +338,7 @@ if __name__ == "__main__":
     while not handler.sigint:
         try:
             controller.poll_readers()
-            time.sleep(0.2)
         except Exception as uknown_exception:
             controller.close_all()
+            quit()
     controller.close_all()

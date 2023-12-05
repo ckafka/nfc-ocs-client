@@ -13,9 +13,20 @@ class OscTcpClient:
 
     def __init__(self, ip, port):
         self.osc_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.osc_socket.connect((ip, port))
+        self.osc_socket.setblocking(False)
+        self.connected = self.osc_socket.connect_ex((ip, port)) == 0
         self._address = ip
         self._port = port
+
+    def connect(self):
+        status = self.osc_socket.connect_ex((self._address, self._port)) 
+        self.connected = status == 0
+        if status == 106:
+            #recreate socket if pipe is broken
+            self.osc_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.osc_socket.setblocking(False)
+            self.connected = self.osc_socket.connect_ex((ip, port)) == 0
+        return self.connected
 
     def send(self, content: Union[OscMessage, OscBundle]) -> None:
         """Sends an :class:`OscMessage` or :class:`OscBundle` via tcp
@@ -23,7 +34,10 @@ class OscTcpClient:
         Args:
             content: Message or bundle to be sent
         """
-        self.osc_socket.sendto(content.dgram, (self._address, self._port))
+        try: 
+            self.osc_socket.sendto(content.dgram, (self._address, self._port))
+        except: 
+            raise 
 
 
     def send_message(self, address: str, value) -> None:
@@ -43,4 +57,7 @@ class OscTcpClient:
         for val in values:
             builder.add_arg(val)
         msg = builder.build()
-        self.send(msg)
+        try: 
+            self.send(msg)
+        except: 
+            raise

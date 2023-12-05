@@ -1,0 +1,18 @@
+{
+    "ch0" : {
+        "led_gpio": "17",
+        "ftdi_sn": "USB0"
+    },
+    "ch1" : {
+        "led_gpio": "18",
+        "ftdi_sn": "USB1"
+    },
+    "ch2" : {
+        "led_gpio": "22",
+        "ftdi_sn": "USB2"
+    },
+    "ch3" : {
+        "led_gpio": "23",
+        "ftdi_sn": "USB3"
+    }
+}
