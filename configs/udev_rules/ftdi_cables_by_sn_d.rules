@@ -1,0 +1,1 @@
+SUBSYSTEM=="tty",SUBSYSTEMS=="usb",DRIVERS=="usb",SYMLINK+="device_%s{serial}"

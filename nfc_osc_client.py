@@ -7,6 +7,7 @@ import time
 import sys
 import argparse
 import json
+import lgpio
 
 
 import nfc
@@ -36,7 +37,7 @@ class NfcReader:
     NFC reader
     """
 
-    def __init__(self, clf):
+    def __init__(self, clf, led_gpio, gpio_if):
         self.clf = clf
         self.last_tag = None
         self.current_tag = None
@@ -47,16 +48,26 @@ class NfcReader:
         config_file = open("configs/elder_mother_tags.json", "r")
         self.tag_dictionary = json.load(config_file)
 
+        self.led_gpio = led_gpio
+        self.gpio_if = gpio_if
+        lgpio.gpio_claim_output(gpio_if, self.led_gpio)
+        self.led_enabled = False
+
     def update(self, tag):
         """Set new tag information"""
         self.last_tag = self.current_tag
         self.current_tag = tag
+
+    def set_led(self, state): 
+        self.led_enabled = stated
+        lgpio.gpio_write(self.gpio_if, self.led_gpio, state)
 
     def is_current_tag_new_and_valid(self):
         """Return true if the current tag is new and valid"""
 
         if self.activated:
             print("A tag is already active")
+            self.set_led(not self.led_enabled) #toggle every time it is detected
             return False
 
         valid = False
@@ -93,6 +104,7 @@ class NfcReader:
         """Set tag as removed once OCS disable command is sent to the server"""
         print("Tag Removed")
         self.activated = False
+        self.set_led(False)
         self.active_tag = None
 
 
@@ -168,6 +180,11 @@ class NfcController:
         self.start_time_ms = time.time_ns() / 1000
         self.TIMEOUT_ms = 100
 
+        ch_config_file = open("configs/channel_mapping.json", "r")
+        self.ch_config = json.load(ch_config_file)
+
+        self.gpio_if = lgpio.gpiochip_open(0)
+
     def tag_detected(self, tag):
         """Print detected tag's NDEF data"""
         print("Tag detected")
@@ -203,7 +220,25 @@ class NfcController:
             nfc_reader.clf.close()
         print("***Closed all readers***")
 
-    def discover_readers(self):
+    def discover_readers_from_config(self): 
+        """
+        Load configuration data from a hard coded config file. 
+        To automatically discover readers, use "discover readers"
+        """
+        for key in self.ch_config: 
+            try:
+                path = "device_" + self.ch_config[key]["ftdi_sn"]
+                clf = nfc.ContactlessFrontend(path)
+                print(f'Found {key} at {path}') 
+                self.readers.append(NfcReader(clf, self.ch_config[key]["led_gpio"], self.gpio_if))
+            except OSError as error:
+                if error.errno == errno.ENODEV:
+                    print(f'Reader on {path} unresponsive. Power cycle reader and try again')
+                else: 
+                    print(f'Unknown error: {error}. Unable to find device at {path}')
+
+
+    def discover_readers_auto(self):
         """Discover readers connected via FTDI USB to serial cables"""
         print("***Discovering Readers***")
         ftdi_cables = nfc.clf.transport.TTY.find("ttyUSB")
@@ -281,7 +316,7 @@ if __name__ == "__main__":
 
     controller = NfcController(client)
 
-    controller.discover_readers()
+    controller.discover_readers_from_config()
 
     if len(controller.readers) == 0:
         print("***No devices found. Exiting***")

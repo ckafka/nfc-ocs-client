@@ -1,0 +1,18 @@
+{
+    "ch0" : {
+        "gpio": "17",
+        "ftdi_sn": "AB7IY4Q3"
+    },
+    "ch1" : {
+        "gpio": "18",
+        "ftdi_sn": ""
+    },
+    "ch2" : {
+        "gpio": "22",
+        "ftdi_sn": ""
+    },
+    "ch3" : {
+        "gpio": "23",
+        "ftdi_sn": ""
+    }
+}
