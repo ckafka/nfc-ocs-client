@@ -48,10 +48,11 @@ class NfcReader:
         config_file = open("configs/elder_mother_tags.json", "r")
         self.tag_dictionary = json.load(config_file)
 
-        self.led_gpio = led_gpio
+        self.led_gpio = int(led_gpio)
         self.gpio_if = gpio_if
         lgpio.gpio_claim_output(gpio_if, self.led_gpio)
-        self.led_enabled = False
+        self.set_led(True)
+        self.led_enabled = True
 
     def update(self, tag):
         """Set new tag information"""
@@ -59,15 +60,15 @@ class NfcReader:
         self.current_tag = tag
 
     def set_led(self, state): 
-        self.led_enabled = stated
-        lgpio.gpio_write(self.gpio_if, self.led_gpio, state)
+        self.led_enabled = state
+        lgpio.gpio_write(self.gpio_if, self.led_gpio, self.led_enabled)
 
     def is_current_tag_new_and_valid(self):
         """Return true if the current tag is new and valid"""
 
         if self.activated:
             print("A tag is already active")
-            self.set_led(not self.led_enabled) #toggle every time it is detected
+            self.set_led(not self.led_enabled)
             return False
 
         valid = False
@@ -104,7 +105,7 @@ class NfcReader:
         """Set tag as removed once OCS disable command is sent to the server"""
         print("Tag Removed")
         self.activated = False
-        self.set_led(False)
+        self.set_led(True)
         self.active_tag = None
 
 
@@ -177,7 +178,9 @@ class NfcController:
             "interval": 0.5,
         }
 
-        self.start_time_ms = time.time_ns() / 1000
+        self.connect = False
+
+        self.start_time_ms = time.time_ns() / 1000000
         self.TIMEOUT_ms = 100
 
         ch_config_file = open("configs/channel_mapping.json", "r")
@@ -197,7 +200,7 @@ class NfcController:
                 current_reader.active_tag.is_one_shot(),
             )
             current_reader.pattern_activated()
-        return True
+        return False
 
     def start_poll(self, targets):
         """Start the stop watch. Must return targets to clf"""
@@ -218,6 +221,7 @@ class NfcController:
         """
         for nfc_reader in self.readers:
             nfc_reader.clf.close()
+            nfc_reader.set_led(False)
         print("***Closed all readers***")
 
     def discover_readers_from_config(self): 
@@ -227,13 +231,14 @@ class NfcController:
         """
         for key in self.ch_config: 
             try:
-                path = "device_" + self.ch_config[key]["ftdi_sn"]
+                path = "tty:" + self.ch_config[key]["ftdi_sn"]
+                time.sleep(0.1)
                 clf = nfc.ContactlessFrontend(path)
                 print(f'Found {key} at {path}') 
                 self.readers.append(NfcReader(clf, self.ch_config[key]["led_gpio"], self.gpio_if))
             except OSError as error:
                 if error.errno == errno.ENODEV:
-                    print(f'Reader on {path} unresponsive. Power cycle reader and try again')
+                    print(f'Reader on {path} unresponsive. Power cycle reader and try again.')
                 else: 
                     print(f'Unknown error: {error}. Unable to find device at {path}')
 
@@ -248,7 +253,7 @@ class NfcController:
                 try:
                     clf = nfc.ContactlessFrontend(path)
                     print(f"Found device: {clf.device}")
-                    self.readers.append(NfcReader(clf))
+                    self.readers.append(NfcReader(clf, self.ch_config[key]["led_gpio"], self.gpio_if))
                 except IOError as error:
                     if error.errno == errno.ENODEV:
                         print(
@@ -329,7 +334,6 @@ if __name__ == "__main__":
     while not handler.sigint:
         try:
             controller.poll_readers()
-            time.sleep(0.2)
         except Exception as uknown_exception:
             controller.close_all()
     controller.close_all()
