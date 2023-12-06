@@ -2,10 +2,10 @@
 Description=NfcOscClient
 
 [Service]
-User=root
+user=nfc
 ExecStart=/home/nfc/nfc-osc-client/run_osc_nfc_client.sh
 Restart=always
-RestartSec=2
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

@@ -331,7 +331,7 @@ if __name__ == "__main__":
     while not handler.sigint:
         try:
             controller.loop()
-            time.sleep(0.2)
+            time.sleep(0.4)
         except Exception as uknown_exception:
             controller.close_all()
             quit()
