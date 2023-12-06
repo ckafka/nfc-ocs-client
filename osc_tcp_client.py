@@ -28,6 +28,14 @@ class OscTcpClient:
             self.connected = self.osc_socket.connect_ex((ip, port)) == 0
         return self.connected
 
+    def close(self):
+        print("tcp socket closed")
+        try:
+            self.osc_socket.shutdown(socket.SHUT_RDWR)
+            self.osc_socket.close()
+        except:
+            pass
+
     def send(self, content: Union[OscMessage, OscBundle]) -> None:
         """Sends an :class:`OscMessage` or :class:`OscBundle` via tcp
 

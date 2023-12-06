@@ -73,7 +73,7 @@ class NfcReader:
             try: 
                 clf.connect(rdwr=params)
             except: 
-                print("exiting")  
+                print("stopped thread")  
                 return
 
     def init_thread(self):
@@ -87,7 +87,11 @@ class NfcReader:
 
     def set_led(self, state): 
         self.led_enabled = state
-        lgpio.gpio_write(self.gpio_if, self.led_gpio, self.led_enabled)
+        # lgpio.gpio_write(self.gpio_if, self.led_gpio, self.led_enabled)
+        if state:
+            lgpio.tx_pwm(self.gpio_if, self.led_gpio, 1000, 50)
+        else: 
+            lgpio.tx_pwm(self.gpio_if, self.led_gpio, 1000, 0)
 
     def tag_detected(self, tag):
         """Print detected tag's NDEF data"""
@@ -172,6 +176,9 @@ class ChromatikOcsClient:
             pass
         return self.connected
 
+    def close(self):
+        self.client.close()
+
     def tx_pattern_enable(self, reader_index, pattern_name, one_shot):
         """Send msg to enable a pattern"""
         address = f"/channel/{reader_index}/pattern/{pattern_name}/enable"
@@ -226,6 +233,8 @@ class NfcController:
         for nfc_reader in self.readers:
             nfc_reader.clf.close()
             nfc_reader.set_led(False)
+        lgpio.gpiochip_close(self.gpio_if)
+        self.chromatik_client.close()
         print("***Closed all readers***")
 
     def discover_readers_from_config(self): 
@@ -233,6 +242,7 @@ class NfcController:
         Load configuration data from a hard coded config file. 
         To automatically discover readers, use "discover readers"
         """
+        print("***Discovering Readers***")
         reader_num = 0
         for key in self.ch_config: 
             try:
@@ -321,7 +331,7 @@ if __name__ == "__main__":
     while not handler.sigint:
         try:
             controller.loop()
-            time.sleep(0.5)
+            time.sleep(0.2)
         except Exception as uknown_exception:
             controller.close_all()
             quit()
