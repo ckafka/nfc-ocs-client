@@ -97,20 +97,23 @@ class NfcReader:
             self.chromatik_client.tx_pattern_enable(
                 self.reader_index,
                 self.active_tag.get_pattern(),
-                slef.active_tag.is_one_shot(),
+                self.active_tag.is_one_shot(),
             )
-            self.pattern_activated()
+            self.activated = True
+
         return True
 
     def tag_removed(self, tag):
-        nfc_reader = self.readers[self.reader_index]
-        nfc_reader.update(tag)
-        if nfc_reader.activated:
-            if not nfc_reader.active_tag.is_one_shot():
+        self.update(tag)
+        if self.activated:
+            if not self.active_tag.is_one_shot():
                 self.chromatik_client.tx_pattern_disable(
-                    self.reader_index, nfc_reader.active_tag.get_pattern()
+                    self.reader_index, self.active_tag.get_pattern()
                 )
-            nfc_reader.tag_removed()
+            print("Tag Removed")
+            self.activated = False
+            self.set_led(True)
+            self.active_tag = None
 
     def is_current_tag_new_and_valid(self):
         """Return true if the current tag is new and valid"""
@@ -145,18 +148,7 @@ class NfcReader:
                 else:
                     print("Unknown tag, please add to dictionary")
             return valid
-
-    def pattern_activated(self):
-        """Set pattern as active once OCS enable command is sent to the server"""
-        self.activated = True
-
-    def tag_removed(self):
-        """Set tag as removed once OCS disable command is sent to the server"""
-        print("Tag Removed")
-        self.activated = False
-        self.set_led(True)
-        self.active_tag = None
-
+    
 
 class ChromatikOcsClient:
     """Osc Client for Chromatik"""
@@ -247,7 +239,7 @@ class NfcController:
                 path = "tty:" + self.ch_config[key]["ftdi_sn"]
                 clf = nfc.ContactlessFrontend(path)
                 print(f'Found {key} at {path}') 
-                self.readers.append(NfcReader(clf, self.ch_config[key]["led_gpio"], self.gpio_if, self.chromatik_client, 0))
+                self.readers.append(NfcReader(clf, self.ch_config[key]["led_gpio"], self.gpio_if, self.chromatik_client, reader_num))
                 reader_num = reader_num + 1
             except OSError as error:
                 if error.errno == errno.ENODEV:
