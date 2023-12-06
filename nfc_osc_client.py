@@ -213,7 +213,7 @@ class NfcController:
     NFC Controller -- supports polling multiple readers
     """
 
-    def __init__(self, client) -> None:
+    def __init__(self, client, gpio_if) -> None:
         self.readers = []
 
         self.chromatik_client = client
@@ -223,7 +223,7 @@ class NfcController:
         ch_config_file = open("configs/channel_mapping.json", "r")
         self.ch_config = json.load(ch_config_file)
 
-        self.gpio_if = lgpio.gpiochip_open(0)
+        self.gpio_if = gpio_if
 
     def close_all(self):
         """
@@ -304,18 +304,12 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    success = False
+    gpio_if = lgpio.gpiochip_open(0)
+
     client = ChromatikOcsClient(args.ip, args.port)
     success = client.connected
-    while not success and not args.quiet:
-        print("Waiting for TCP server...")
-        try:
-            success = client.connect()
-        except Exception as e:
-            print(f'Failed to connect: {e}')
-        time.sleep(1)
 
-    controller = NfcController(client)
+    controller = NfcController(client, gpio_if)
 
     controller.discover_readers_from_config()
 
@@ -323,6 +317,24 @@ if __name__ == "__main__":
         print("***Not all devices found. Exiting***")
         controller.close_all()
         quit()
+
+    # tcp discovery
+    count = 0
+    while not success and not args.quiet:
+        print("Waiting for TCP server...")
+        count = count + 30
+        if count > 100:
+            count = 30
+        lgpio.tx_pwm(gpio_if, 17, 1000, count)
+        lgpio.tx_pwm(gpio_if, 18, 1000, count)
+        lgpio.tx_pwm(gpio_if, 22, 1000, count)
+        lgpio.tx_pwm(gpio_if, 23, 1000, count)
+
+        try:
+            success = client.connect()
+        except Exception as e:
+            print(f'Failed to connect: {e}')
+        time.sleep(0.5)
 
     handler = Sighandler()
     signal.signal(signal.SIGINT, handler.signal_handler)

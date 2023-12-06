@@ -6,7 +6,7 @@ user=nfc
 ExecStart=/home/nfc/nfc-osc-client/run_osc_nfc_client.sh
 Environment=/home/nfc/nfc-osc-client/.venv/lib/python3.10/site-packages
 Restart=always
-RestartSec=10
+RestartSec=1
 
 [Install]
 WantedBy=multi-user.target
