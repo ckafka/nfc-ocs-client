@@ -8,6 +8,7 @@ import sys
 import argparse
 import json
 import lgpio
+import threading
 
 
 import nfc
@@ -36,8 +37,9 @@ class NfcReader:
     """
     NFC reader
     """
+    global thread_call
 
-    def __init__(self, clf, led_gpio, gpio_if):
+    def __init__(self, clf, led_gpio, gpio_if, client, index):
         self.clf = clf
         self.last_tag = None
         self.current_tag = None
@@ -54,6 +56,30 @@ class NfcReader:
         self.set_led(True)
         self.led_enabled = True
 
+        self.chromatik_client = client
+        self.reader_index = index
+
+        self.rw_params = {
+            "on-connect": self.tag_detected,
+            "on-release": self.tag_removed,
+            "iterations": 5,
+            "interval": 0.5,
+        }
+
+        self.init_thread()
+
+    def thread_call(clf, params):
+        while True:
+            try: 
+                clf.connect(rdwr=params)
+            except: 
+                print("exiting")  
+                return
+
+    def init_thread(self):
+        new_thread = threading.Thread(target=thread_call, kwargs={"clf": self.clf, "params":self.rw_params})
+        new_thread.start()
+
     def update(self, tag):
         """Set new tag information"""
         self.last_tag = self.current_tag
@@ -62,6 +88,29 @@ class NfcReader:
     def set_led(self, state): 
         self.led_enabled = state
         lgpio.gpio_write(self.gpio_if, self.led_gpio, self.led_enabled)
+
+    def tag_detected(self, tag):
+        """Print detected tag's NDEF data"""
+        print("Tag detected")
+        self.update(tag)
+        if self.is_current_tag_new_and_valid():
+            self.chromatik_client.tx_pattern_enable(
+                self.reader_index,
+                self.active_tag.get_pattern(),
+                slef.active_tag.is_one_shot(),
+            )
+            self.pattern_activated()
+        return True
+
+    def tag_removed(self, tag):
+        nfc_reader = self.readers[self.reader_index]
+        nfc_reader.update(tag)
+        if nfc_reader.activated:
+            if not nfc_reader.active_tag.is_one_shot():
+                self.chromatik_client.tx_pattern_disable(
+                    self.reader_index, nfc_reader.active_tag.get_pattern()
+                )
+            nfc_reader.tag_removed()
 
     def is_current_tag_new_and_valid(self):
         """Return true if the current tag is new and valid"""
@@ -167,52 +216,15 @@ class NfcController:
 
     def __init__(self, client) -> None:
         self.readers = []
-        self.reader_index = 0
 
         self.chromatik_client = client
 
-        self.rw_params = {
-            "on-startup": self.start_poll,
-            "on-connect": self.tag_detected,
-            "iterations": 1,
-            "interval": 0.5,
-        }
-
         self.connect = False
-
-        self.start_time_ms = time.time_ns() / 1000000
-        self.TIMEOUT_ms = 100
 
         ch_config_file = open("configs/channel_mapping.json", "r")
         self.ch_config = json.load(ch_config_file)
 
         self.gpio_if = lgpio.gpiochip_open(0)
-
-    def tag_detected(self, tag):
-        """Print detected tag's NDEF data"""
-        print("Tag detected")
-        current_reader = self.readers[self.reader_index]
-        current_reader.update(tag)
-        if current_reader.is_current_tag_new_and_valid():
-            self.chromatik_client.tx_pattern_enable(
-                self.reader_index,
-                current_reader.active_tag.get_pattern(),
-                current_reader.active_tag.is_one_shot(),
-            )
-            current_reader.pattern_activated()
-        return False
-
-    def start_poll(self, targets):
-        """Start the stop watch. Must return targets to clf"""
-        self.start_time_ms = time.time_ns() / 1000000
-        return targets
-
-    def timeout(self):
-        """
-        Return whether time > TIMEOUT_S has elapsed since last call of start_poll()
-        """
-        elapsed = (time.time_ns() / 1000000) - self.start_time_ms
-        return elapsed > self.TIMEOUT_ms
 
     def close_all(self):
         """
@@ -229,19 +241,19 @@ class NfcController:
         Load configuration data from a hard coded config file. 
         To automatically discover readers, use "discover readers"
         """
+        reader_num = 0
         for key in self.ch_config: 
             try:
                 path = "tty:" + self.ch_config[key]["ftdi_sn"]
-                time.sleep(0.1)
                 clf = nfc.ContactlessFrontend(path)
                 print(f'Found {key} at {path}') 
-                self.readers.append(NfcReader(clf, self.ch_config[key]["led_gpio"], self.gpio_if))
+                self.readers.append(NfcReader(clf, self.ch_config[key]["led_gpio"], self.gpio_if, self.chromatik_client, 0))
+                reader_num = reader_num + 1
             except OSError as error:
                 if error.errno == errno.ENODEV:
                     print(f'Reader on {path} unresponsive. Power cycle reader and try again.')
                 else: 
                     print(f'Unknown error: {error}. Unable to find device at {path}')
-
 
     def discover_readers_auto(self):
         """Discover readers connected via FTDI USB to serial cables"""
@@ -262,36 +274,14 @@ class NfcController:
                     else:
                         print(f"Unkown error: {error}")
 
-    def poll_readers(self):
+
+    def loop(self):
         """Poll each reader for a card, print the tag"""
         print("***Polling***")
 
-        if len(self.readers) < 3: 
-            print("Failed to find at least three readers, quitting...")
-            raise OSError
-
-        self.reader_index = 0
-        for nfc_reader in self.readers:
-            try:
-                print(f"Polling reader {nfc_reader.clf.device}")
-                tag = nfc_reader.clf.connect(
-                    rdwr=self.rw_params, terminate=self.timeout
-                )
-
-                # Send disable command once the tag is removed
-                # Don't send disable commands if it's one-shot
-                if tag is None:
-                    nfc_reader.update(tag)
-                    if nfc_reader.activated:
-                        if not nfc_reader.active_tag.is_one_shot():
-                            self.chromatik_client.tx_pattern_disable(
-                                self.reader_index, nfc_reader.active_tag.get_pattern()
-                            )
-                        nfc_reader.tag_removed()
-
-            except Exception as unknown_exception:
-                print(f"{unknown_exception}")
-            self.reader_index += 1
+        for reader in self.readers:
+            if reader.activated:
+                reader.set_led(not reader.led_enabled)
 
         if not self.chromatik_client.connected:
             try: 
@@ -328,8 +318,9 @@ if __name__ == "__main__":
     controller.discover_readers_from_config()
 
     if len(controller.readers) == 0:
-        print("***No devices found. Exiting***")
-        sys.exit()
+        print("***Not all devices found. Exiting***")
+        controller.close_all()
+        quit()
 
     handler = Sighandler()
     signal.signal(signal.SIGINT, handler.signal_handler)
@@ -337,7 +328,8 @@ if __name__ == "__main__":
 
     while not handler.sigint:
         try:
-            controller.poll_readers()
+            controller.loop()
+            time.sleep(0.5)
         except Exception as uknown_exception:
             controller.close_all()
             quit()
