@@ -319,7 +319,7 @@ if __name__ == "__main__":
 
     controller.discover_readers_from_config()
 
-    if len(controller.readers) == 0:
+    if len(controller.readers) < 4:
         print("***Not all devices found. Exiting***")
         controller.close_all()
         quit()
@@ -331,7 +331,7 @@ if __name__ == "__main__":
     while not handler.sigint:
         try:
             controller.loop()
-            time.sleep(0.4)
+            time.sleep(0.3)
         except Exception as uknown_exception:
             controller.close_all()
             quit()

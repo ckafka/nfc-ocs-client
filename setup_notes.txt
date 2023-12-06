@@ -33,9 +33,9 @@ sudo nano /etc/wpa_supplicant/wpa_supplicant.conf
 
 need lgpio doesnt work with pip 
 sudo apt-get install python3-lgpio
-cp /usr/lib/python3/dist-packages/lgpio* ~/nfc-ocs-client/.venv/lib/python3.10/site-packages/
-cp /usr/lib/python3/dist-packages/_lgpio* ~/nfc-ocs-client/.venv/lib/python3.10/site-packages/
-cp -r /usr/lib/python3/dist-packages/lgpio* ~/nfc-ocs-client/.venv/lib/python3.10/site-packages/
+cp /usr/lib/python3/dist-packages/lgpio* ~/nfc-osc-client/.venv/lib/python3.10/site-packages/
+cp /usr/lib/python3/dist-packages/_lgpio* ~/nfc-osc-client/.venv/lib/python3.10/site-packages/
+cp -r /usr/lib/python3/dist-packages/lgpio* ~/nfc-osc-client/.venv/lib/python3.10/site-packages/
 
 copy the udev rule to /etc/udev/rules.d/
 udevadm control --reload
