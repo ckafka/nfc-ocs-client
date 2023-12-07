@@ -22,7 +22,6 @@ from binascii import hexlify
 from nfc_tags import CustomTextTag, HardCodedTag
 
 send_lock = threading.Lock()
-gpio_lock = threading.Lock()
 
 run = True
 
@@ -35,6 +34,8 @@ class Sighandler:
     def signal_handler(self, sig, han):
         """Ack received handler"""
         self.sigint = True
+        global run 
+        run = False
         print(f"\n***{signal.Signals(sig).name} received. Exiting...***")
 
 
@@ -97,14 +98,16 @@ class NfcReader:
         self.current_tag = tag
 
     def set_led(self, state): 
-        gpio_lock.acquire()
+        """
+        not thread safe
+        """
         self.led_enabled = state
         # lgpio.gpio_write(self.gpio_if, self.led_gpio, self.led_enabled)
         if state:
             lgpio.tx_pwm(self.gpio_if, self.led_gpio, 1000, 50)
         else: 
             lgpio.tx_pwm(self.gpio_if, self.led_gpio, 1000, 0)
-        gpio_lock.release()
+            lgpio.gpio_write(self.gpio_if, self.led_gpio, 0)
 
     def tag_detected(self, tag):
         """Print detected tag's NDEF data"""
@@ -129,7 +132,6 @@ class NfcReader:
                 )
             print("Tag Removed")
             self.activated = False
-            self.set_led(True)
             self.active_tag = None
 
     def is_current_tag_new_and_valid(self):
@@ -247,15 +249,9 @@ class NfcController:
         Close all detected NFC readers. If reader is not closed correctly, it
         will not initialize correctly on the next run due issue on PN532
         """
-        global run 
-        run = False
         for nfc_reader in self.readers:
             nfc_reader.clf.close()
             nfc_reader.set_led(False)
-        lgpio.tx_pwm(self.gpio_if, 17, 1000, 0)
-        lgpio.tx_pwm(self.gpio_if, 18, 1000, 0)
-        lgpio.tx_pwm(self.gpio_if, 22, 1000, 0)
-        lgpio.tx_pwm(self.gpio_if, 23, 1000, 0)
         lgpio.gpiochip_close(self.gpio_if)
         self.chromatik_client.close()
         print("***Closed all readers***")
@@ -304,13 +300,11 @@ class NfcController:
                         print(f"Unkown error: {error}")
 
     def breathe_leds(self):
-        gpio_lock.acquire()
         for reader in self.readers:
             lgpio.tx_pwm(self.gpio_if, reader.led_gpio, 1000, self.count)
         self.count = self.count + 30
         if self.count > 100:
             self.count = 0
-        gpio_lock.release()
 
     def all_leds_on(self):
         for reader in self.readers:
@@ -332,6 +326,8 @@ class NfcController:
             for reader in self.readers:
                 if reader.activated:
                     reader.set_led(not reader.led_enabled)
+                else:
+                    reader.set_led(True)
 
 if __name__ == "__main__":
     print("***CTRL+C or pskill python to exit***")
