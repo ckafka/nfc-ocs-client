@@ -246,8 +246,6 @@ class NfcController:
             nfc_reader.set_led(False)
         lgpio.gpiochip_close(self.gpio_if)
         self.chromatik_client.close()
-        except:
-            pass
         print("***Closed all readers***")
 
     def discover_readers_from_config(self): 
@@ -298,7 +296,11 @@ class NfcController:
             self.count = 0
         gpio_lock.release()
 
-
+    def all_leds_on(self):
+        gpio_lock.acquire()
+        for reader in self.readers:
+            reader.set_led(True)
+        gpio_lock.release()
 
     def loop(self):
         """Poll each reader for a card, print the tag"""
@@ -310,6 +312,7 @@ class NfcController:
                 self.chromatik_client.connect() # retry
                 if self.chromatik_client.connected:
                     print("Reconnected")
+                    self.all_leds_on()
             except:
                 pass
         else:
@@ -352,6 +355,8 @@ if __name__ == "__main__":
         except Exception as e:
             print(f'Failed to connect: {e}')
         time.sleep(0.5)
+
+    controller.all_leds_on()
 
     handler = Sighandler()
     signal.signal(signal.SIGINT, handler.signal_handler)
