@@ -24,6 +24,7 @@ from nfc_tags import CustomTextTag, HardCodedTag
 send_lock = threading.Lock()
 gpio_lock = threading.Lock()
 
+run = True
 
 class Sighandler:
     """SIGTERM and SIGINT handler"""
@@ -74,13 +75,15 @@ class NfcReader:
         self.init_thread()
 
     def thread_call(clf, params):
-        while True:
+        global run
+        while run:
             try: 
                 clf.connect(rdwr=params)
                 time.sleep(0.1)
             except: 
-                print("stopped thread")  
+                print("thread died")  
                 return
+        print("thread exited gracefully")
 
     def init_thread(self):
         self.thread = threading.Thread(target=thread_call, kwargs={"clf": self.clf, "params":self.rw_params})
@@ -244,9 +247,15 @@ class NfcController:
         Close all detected NFC readers. If reader is not closed correctly, it
         will not initialize correctly on the next run due issue on PN532
         """
+        global run 
+        run = False
         for nfc_reader in self.readers:
             nfc_reader.clf.close()
             nfc_reader.set_led(False)
+        lgpio.tx_pwm(self.gpio_if, 17, 1000, 0)
+        lgpio.tx_pwm(self.gpio_if, 18, 1000, 0)
+        lgpio.tx_pwm(self.gpio_if, 22, 1000, 0)
+        lgpio.tx_pwm(self.gpio_if, 23, 1000, 0)
         lgpio.gpiochip_close(self.gpio_if)
         self.chromatik_client.close()
         print("***Closed all readers***")
