@@ -9,6 +9,7 @@ import argparse
 import json
 import lgpio
 import threading
+import logging
 
 
 import nfc
@@ -69,6 +70,7 @@ class NfcReader:
             "interval": 0.5,
         }
 
+        self.thread = None
         self.init_thread()
 
     def thread_call(clf, params):
@@ -81,8 +83,10 @@ class NfcReader:
                 return
 
     def init_thread(self):
-        new_thread = threading.Thread(target=thread_call, kwargs={"clf": self.clf, "params":self.rw_params})
-        new_thread.start()
+        self.thread = threading.Thread(target=thread_call, kwargs={"clf": self.clf, "params":self.rw_params})
+        
+    def start(self):
+        self.thread.start()
 
     def update(self, tag):
         """Set new tag information"""
@@ -130,7 +134,6 @@ class NfcReader:
 
         if self.activated:
             print("A tag is already active")
-            self.set_led(not self.led_enabled)
             return False
 
         valid = False
@@ -248,6 +251,10 @@ class NfcController:
         self.chromatik_client.close()
         print("***Closed all readers***")
 
+    def start_scanning_threads(self):
+        for reader in self.readers:
+            reader.start()
+
     def discover_readers_from_config(self): 
         """
         Load configuration data from a hard coded config file. 
@@ -257,7 +264,7 @@ class NfcController:
         reader_num = 0
         for key in self.ch_config: 
             try:
-                path = "tty:" + self.ch_config[key]["ftdi_sn"]
+                path = "tty:" + self.ch_config[key]["ftdi_sn"] + ":pn532"
                 clf = nfc.ContactlessFrontend(path)
                 print(f'Found {key} at {path}') 
                 self.readers.append(NfcReader(clf, self.ch_config[key]["led_gpio"], self.gpio_if, self.chromatik_client, reader_num))
@@ -297,21 +304,18 @@ class NfcController:
         gpio_lock.release()
 
     def all_leds_on(self):
-        gpio_lock.acquire()
         for reader in self.readers:
             reader.set_led(True)
-        gpio_lock.release()
 
     def loop(self):
         """Poll each reader for a card, print the tag"""
-        print("***Polling***")
-
         if not self.chromatik_client.connected:
+            self.breathe_leds()
             try: 
                 print("Missing TCP connection. Retrying...")
                 self.chromatik_client.connect() # retry
                 if self.chromatik_client.connected:
-                    print("Reconnected")
+                    print("Connected")
                     self.all_leds_on()
             except:
                 pass
@@ -330,6 +334,11 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # logging.basicConfig(format='%(relativeCreated)d ms [%(name)s] %(message)s')
+    logging.basicConfig()
+    logging.getLogger('nfc').setLevel( logging.INFO)
+
+
     gpio_if = lgpio.gpiochip_open(0)
 
     client = ChromatikOcsClient(args.ip, args.port)
@@ -343,20 +352,13 @@ if __name__ == "__main__":
         print("***Not all devices found. Exiting***")
         controller.close_all()
         quit()
-
-    # tcp discovery
-    count = 0
-    while not success and not args.quiet:
-        print("Waiting for TCP server...")
-        controller.breathe_leds()
-
-        try:
-            success = client.connect()
-        except Exception as e:
-            print(f'Failed to connect: {e}')
-        time.sleep(0.5)
+    
+    print("all devices found")
 
     controller.all_leds_on()
+    controller.start_scanning_threads()
+
+    print("threads running")
 
     handler = Sighandler()
     signal.signal(signal.SIGINT, handler.signal_handler)
@@ -370,3 +372,4 @@ if __name__ == "__main__":
             controller.close_all()
             quit()
     controller.close_all()
+    quit()
