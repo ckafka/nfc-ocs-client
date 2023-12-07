@@ -20,6 +20,9 @@ from binascii import hexlify
 
 from nfc_tags import CustomTextTag, HardCodedTag
 
+send_lock = threading.Lock()
+gpio_lock = threading.Lock()
+
 
 class Sighandler:
     """SIGTERM and SIGINT handler"""
@@ -72,6 +75,7 @@ class NfcReader:
         while True:
             try: 
                 clf.connect(rdwr=params)
+                time.sleep(0.1)
             except: 
                 print("stopped thread")  
                 return
@@ -86,12 +90,14 @@ class NfcReader:
         self.current_tag = tag
 
     def set_led(self, state): 
+        gpio_lock.acquire()
         self.led_enabled = state
         # lgpio.gpio_write(self.gpio_if, self.led_gpio, self.led_enabled)
         if state:
             lgpio.tx_pwm(self.gpio_if, self.led_gpio, 1000, 50)
         else: 
             lgpio.tx_pwm(self.gpio_if, self.led_gpio, 1000, 0)
+        gpio_lock.release()
 
     def tag_detected(self, tag):
         """Print detected tag's NDEF data"""
@@ -188,7 +194,9 @@ class ChromatikOcsClient:
             )
         else:
             try:
+                send_lock.acquire()
                 self.client.send_message(address, "T\n")
+                send_lock.release()
                 print(f'Sent msg: {address}/{"T"}, one shot: {one_shot}')
             except Exception as e:
                 print(f'failed to send message: {e}')
@@ -201,7 +209,9 @@ class ChromatikOcsClient:
             print(f'OSC port not open. Failed to send msg: {address}/{"F"}')
         else:
             try:
+                send_lock.acquire()
                 self.client.send_message(address, "F\n")
+                send_lock.release()
                 print(f'Sent msg: {address}/{"F"}')
             except Exception as e: #errno 32 is broken pipe, errno 104 is connection reset by peer
                 print(f'failed to send message: {e}')
@@ -224,6 +234,7 @@ class NfcController:
         self.ch_config = json.load(ch_config_file)
 
         self.gpio_if = gpio_if
+        self.count = 30
 
     def close_all(self):
         """
@@ -235,6 +246,8 @@ class NfcController:
             nfc_reader.set_led(False)
         lgpio.gpiochip_close(self.gpio_if)
         self.chromatik_client.close()
+        except:
+            pass
         print("***Closed all readers***")
 
     def discover_readers_from_config(self): 
@@ -276,14 +289,20 @@ class NfcController:
                     else:
                         print(f"Unkown error: {error}")
 
+    def breathe_leds(self):
+        gpio_lock.acquire()
+        for reader in self.readers:
+            lgpio.tx_pwm(self.gpio_if, reader.led_gpio, 1000, self.count)
+        self.count = self.count + 30
+        if self.count > 100:
+            self.count = 0
+        gpio_lock.release()
+
+
 
     def loop(self):
         """Poll each reader for a card, print the tag"""
         print("***Polling***")
-
-        for reader in self.readers:
-            if reader.activated:
-                reader.set_led(not reader.led_enabled)
 
         if not self.chromatik_client.connected:
             try: 
@@ -293,6 +312,10 @@ class NfcController:
                     print("Reconnected")
             except:
                 pass
+        else:
+            for reader in self.readers:
+                if reader.activated:
+                    reader.set_led(not reader.led_enabled)
 
 if __name__ == "__main__":
     print("***CTRL+C or pskill python to exit***")
@@ -322,13 +345,7 @@ if __name__ == "__main__":
     count = 0
     while not success and not args.quiet:
         print("Waiting for TCP server...")
-        count = count + 30
-        if count > 100:
-            count = 30
-        lgpio.tx_pwm(gpio_if, 17, 1000, count)
-        lgpio.tx_pwm(gpio_if, 18, 1000, count)
-        lgpio.tx_pwm(gpio_if, 22, 1000, count)
-        lgpio.tx_pwm(gpio_if, 23, 1000, count)
+        controller.breathe_leds()
 
         try:
             success = client.connect()

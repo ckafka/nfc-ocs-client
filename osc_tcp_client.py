@@ -31,7 +31,7 @@ class OscTcpClient:
     def close(self):
         print("tcp socket closed")
         try:
-            self.osc_socket.shutdown(socket.SHUT_RDWR)
+            # self.osc_socket.shutdown(socket.SHUT_RDWR)
             self.osc_socket.close()
         except:
             pass
